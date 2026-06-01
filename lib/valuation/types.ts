@@ -6,10 +6,12 @@ export const operatingMarginSchema = z.number().min(-1).max(1);
 export const positiveRateSchema = z.number().min(0).max(1);
 
 export const companyProfileSchema = z.object({
-  name: z.string().min(1),
+  companyName: z.string().min(1),
   country: z.string().min(1),
-  industry: z.string().min(1),
   currency: z.string().min(1),
+  registrationNumber: z.string().min(1),
+  website: z.string(),
+  industry: z.string().min(1),
   valuationDate: z.string().min(1),
 });
 

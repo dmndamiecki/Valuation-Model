@@ -2,10 +2,12 @@ import type { ValuationInput } from "./types";
 
 export const defaultValuationInput: ValuationInput = {
   profile: {
-    name: "Harbor Precision Components LLC",
+    companyName: "Harbor Precision Components LLC",
     country: "United States",
-    industry: "Niche industrial manufacturing",
     currency: "USD",
+    registrationNumber: "US-DE-1234567",
+    website: "https://harborprecision.example",
+    industry: "Niche industrial manufacturing",
     valuationDate: "2026-06-01",
   },
   historicals: [

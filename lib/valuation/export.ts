@@ -103,7 +103,7 @@ export function buildValuationConclusion(
   ];
   const methodologyNote = "Valuation is based on an unlevered FCFF DCF, WACC discounting, selected terminal value method, EV-to-equity bridge, and sequential private-company equity discounts. No external APIs, databases, or server-side export services are used.";
   const summaryText = [
-    `${input.profile.name} valuation conclusion`,
+    `${input.profile.companyName} valuation conclusion`,
     `Base adjusted equity value: ${safeMoney(base.adjustedEquityValue, input.profile.currency)}.`,
     `Bear / Bull adjusted equity value range: ${safeMoney(bear.adjustedEquityValue, input.profile.currency)} to ${safeMoney(bull.adjustedEquityValue, input.profile.currency)}.`,
     `Key drivers: ${keyValuationDrivers.join(" ")}`,

@@ -4,6 +4,8 @@ export type SimpleModeInput = {
   companyName: string;
   country: string;
   currency: string;
+  registrationNumber: string;
+  website: string;
   industry: string;
   latestRevenue: number;
   latestEbitda: number;
@@ -57,9 +59,11 @@ export function simpleInputFromValuationInput(
   const latestHistorical = input.historicals[input.historicals.length - 1];
 
   return {
-    companyName: input.profile.name,
+    companyName: input.profile.companyName,
     country: input.profile.country,
     currency: input.profile.currency,
+    registrationNumber: input.profile.registrationNumber,
+    website: input.profile.website,
     industry: input.profile.industry,
     latestRevenue: latestHistorical.revenue,
     latestEbitda: latestHistorical.ebitda,
@@ -87,10 +91,12 @@ export function buildValuationInputFromSimpleMode(
 
   return {
     profile: {
-      name: simpleInput.companyName,
+      companyName: simpleInput.companyName,
       country: simpleInput.country,
-      industry: simpleInput.industry,
       currency: simpleInput.currency,
+      registrationNumber: simpleInput.registrationNumber,
+      website: simpleInput.website,
+      industry: simpleInput.industry,
       valuationDate: simpleInput.valuationDate,
     },
     historicals: historicalYears.map((year, index) => {

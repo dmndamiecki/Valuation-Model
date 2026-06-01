@@ -21,6 +21,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { calculateEquityBridge, calculatePrivateCompanyDiscounts } from "@/lib/valuation/bridge";
+import { countryOptions, currencyOptions, formatCurrencyOption, getDefaultCurrencyForCountry } from "@/lib/valuation/company-profile";
 import { calculateDcf } from "@/lib/valuation/dcf";
 import { calculateValuationDiagnostics } from "@/lib/valuation/diagnostics";
 import { buildCombinedCsvExport, buildReportJson, buildReportSummaryText, buildValuationReport } from "@/lib/valuation/export";
@@ -99,7 +100,7 @@ function WorkflowNav({ sections }: { sections: WorkflowSectionItem[] }) {
 }
 
 type ScalarPath =
-  | ["profile", "name" | "country" | "industry" | "currency" | "valuationDate"]
+  | ["profile", "companyName" | "country" | "currency" | "registrationNumber" | "website" | "industry" | "valuationDate"]
   | ["forecast", "taxRate"]
   | ["wacc", keyof ValuationInput["wacc"]]
   | ["terminalValue", "perpetualGrowthRate" | "exitEbitdaMultiple"]
@@ -207,12 +208,22 @@ export default function Home() {
     setWizardInput((current) => ({ ...current, [key]: value }));
   }
 
+  function updateWizardCountry(country: string) {
+    setWizardInput((current) => ({
+      ...current,
+      country,
+      currency: getDefaultCurrencyForCountry(country) ?? current.currency,
+    }));
+  }
+
   function startValuation() {
     if (wizardInput.valuationType === "simple") {
       const nextSimpleInput: SimpleModeInput = {
         companyName: wizardInput.companyName,
         country: wizardInput.country,
         currency: wizardInput.currency,
+        registrationNumber: wizardInput.registrationNumber,
+        website: wizardInput.website,
         industry: wizardInput.industry,
         latestRevenue: wizardInput.latestRevenue,
         latestEbitda: wizardInput.latestEbitda,
@@ -230,9 +241,11 @@ export default function Home() {
         ...defaultValuationInput,
         profile: {
           ...defaultValuationInput.profile,
-          name: wizardInput.companyName,
+          companyName: wizardInput.companyName,
           country: wizardInput.country,
           currency: wizardInput.currency,
+          registrationNumber: wizardInput.registrationNumber,
+          website: wizardInput.website,
           industry: wizardInput.industry,
         },
       };
@@ -374,9 +387,11 @@ export default function Home() {
               {wizardStep === 1 && (
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-1.5"><Label>Company name</Label><Input value={wizardInput.companyName} onChange={(event) => updateWizard("companyName", event.target.value)} /></div>
-                  <div className="space-y-1.5"><Label>Country</Label><Input value={wizardInput.country} onChange={(event) => updateWizard("country", event.target.value)} /></div>
-                  <div className="space-y-1.5"><Label>Currency</Label><Input value={wizardInput.currency} onChange={(event) => updateWizard("currency", event.target.value)} /></div>
+                  <div className="space-y-1.5"><Label>Country</Label><Input list="country-options" value={wizardInput.country} onChange={(event) => updateWizardCountry(event.target.value)} placeholder="Search country" /><datalist id="country-options">{countryOptions.map((country) => <option key={country.name} value={country.name} />)}</datalist></div>
+                  <div className="space-y-1.5"><Label>Currency</Label><select className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 shadow-sm transition file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-400 focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-100" value={wizardInput.currency} onChange={(event) => updateWizard("currency", event.target.value)}>{currencyOptions.map((currency) => <option key={currency.code} value={currency.code}>{formatCurrencyOption(currency)}</option>)}</select></div>
                   <div className="space-y-1.5"><Label>Industry</Label><Input value={wizardInput.industry} onChange={(event) => updateWizard("industry", event.target.value)} /></div>
+                  <div className="space-y-1.5"><Label>Registration Number</Label><Input value={wizardInput.registrationNumber} onChange={(event) => updateWizard("registrationNumber", event.target.value)} /><p className="text-xs text-slate-500">This identifier will be used later for automatic company data retrieval.</p></div>
+                  <div className="space-y-1.5"><Label>Website (optional)</Label><Input value={wizardInput.website} onChange={(event) => updateWizard("website", event.target.value)} placeholder="https://example.com" /></div>
                 </div>
               )}
 
@@ -438,7 +453,7 @@ export default function Home() {
               </p>
             </div>
             <div className="grid gap-3 text-sm text-slate-300">
-              <div className="flex items-center gap-2"><Building2 size={18} /> {input.profile.name}</div>
+              <div className="flex items-center gap-2"><Building2 size={18} /> {input.profile.companyName}</div>
               <div className="flex items-center gap-2"><Calculator size={18} /> {input.profile.country} · Currency: {input.profile.currency} in 000s</div>
               <div className="flex items-center gap-2"><LineChartIcon size={18} /> Valuation date: {input.profile.valuationDate}</div>
               <button className="mt-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/20" onClick={startNewValuation}>Start new valuation</button>
@@ -545,10 +560,12 @@ export default function Home() {
               <CardDescription>Core identifying inputs for the valuation memorandum.</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-1.5"><Label>Company name</Label><Input value={input.profile.name} onChange={(e) => update(["profile", "name"], e.target.value)} /></div>
+              <div className="space-y-1.5"><Label>Company name</Label><Input value={input.profile.companyName} onChange={(e) => update(["profile", "companyName"], e.target.value)} /></div>
               <div className="space-y-1.5"><Label>Country</Label><Input value={input.profile.country} onChange={(e) => update(["profile", "country"], e.target.value)} /></div>
-              <div className="space-y-1.5"><Label>Industry</Label><Input value={input.profile.industry} onChange={(e) => update(["profile", "industry"], e.target.value)} /></div>
               <div className="space-y-1.5"><Label>Currency</Label><Input value={input.profile.currency} onChange={(e) => update(["profile", "currency"], e.target.value)} /></div>
+              <div className="space-y-1.5"><Label>Industry</Label><Input value={input.profile.industry} onChange={(e) => update(["profile", "industry"], e.target.value)} /></div>
+              <div className="space-y-1.5"><Label>Registration Number</Label><Input value={input.profile.registrationNumber} onChange={(e) => update(["profile", "registrationNumber"], e.target.value)} /></div>
+              <div className="space-y-1.5"><Label>Website (optional)</Label><Input value={input.profile.website} onChange={(e) => update(["profile", "website"], e.target.value)} /></div>
               <div className="space-y-1.5"><Label>Valuation date</Label><Input value={input.profile.valuationDate} onChange={(e) => update(["profile", "valuationDate"], e.target.value)} /></div>
             </CardContent>
           </Card>
