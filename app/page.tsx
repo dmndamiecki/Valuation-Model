@@ -34,11 +34,14 @@ import {
   calculateValuationWarnings,
 } from "@/lib/valuation/output";
 import { calculateScenarioAnalysis } from "@/lib/valuation/scenarios";
+import { buildValuationInputFromSimpleMode, simpleInputFromValuationInput, type SimpleModeInput } from "@/lib/valuation/simple-mode";
 import { buildCenteredSensitivityCases, buildSensitivityTable } from "@/lib/valuation/sensitivity";
 import { valuationInputSchema, type ValuationInput } from "@/lib/valuation/types";
 import { calculateWacc } from "@/lib/valuation/wacc";
 
 type PercentArrayKey = "revenueGrowth" | "ebitdaMargin" | "depreciationPctRevenue" | "capexPctRevenue";
+
+const defaultSimpleModeInput = simpleInputFromValuationInput(defaultValuationInput);
 
 type WorkflowStatus = "complete" | "warning" | "missing inputs";
 
@@ -93,7 +96,7 @@ function WorkflowNav({ sections }: { sections: WorkflowSectionItem[] }) {
 }
 
 type ScalarPath =
-  | ["profile", "name" | "industry" | "currency" | "valuationDate"]
+  | ["profile", "name" | "country" | "industry" | "currency" | "valuationDate"]
   | ["forecast", "taxRate"]
   | ["wacc", keyof ValuationInput["wacc"]]
   | ["terminalValue", "perpetualGrowthRate" | "exitEbitdaMultiple"]
@@ -161,7 +164,9 @@ function NumberField({ label, value, onChange, percent = false }: { label: strin
 }
 
 export default function Home() {
-  const [input, setInput] = useState<ValuationInput>(defaultValuationInput);
+  const [mode, setMode] = useState<"simple" | "professional">("simple");
+  const [input, setInput] = useState<ValuationInput>(() => buildValuationInputFromSimpleMode(defaultSimpleModeInput));
+  const [simpleInput, setSimpleInput] = useState<SimpleModeInput>(defaultSimpleModeInput);
 
   const validation = useMemo(() => valuationInputSchema.safeParse(input), [input]);
   const model = useMemo(() => {
@@ -190,6 +195,21 @@ export default function Home() {
       ...current,
       [path[0]]: { ...current[path[0]], [path[1]]: value },
     }));
+  }
+
+  function updateSimple<K extends keyof SimpleModeInput>(key: K, value: SimpleModeInput[K]) {
+    const next: SimpleModeInput = { ...simpleInput, [key]: value };
+    setSimpleInput(next);
+    setInput(buildValuationInputFromSimpleMode(next));
+  }
+
+  function switchMode(nextMode: "simple" | "professional") {
+    if (nextMode === "simple") {
+      const nextSimpleInput = simpleInputFromValuationInput(input);
+      setSimpleInput(nextSimpleInput);
+      setInput(buildValuationInputFromSimpleMode(nextSimpleInput));
+    }
+    setMode(nextMode);
   }
 
   function updateHistorical(index: number, key: keyof ValuationInput["historicals"][number], value: number) {
@@ -288,11 +308,85 @@ export default function Home() {
             </div>
             <div className="grid gap-3 text-sm text-slate-300">
               <div className="flex items-center gap-2"><Building2 size={18} /> {input.profile.name}</div>
-              <div className="flex items-center gap-2"><Calculator size={18} /> Currency: {input.profile.currency} in 000s</div>
+              <div className="flex items-center gap-2"><Calculator size={18} /> {input.profile.country} · Currency: {input.profile.currency} in 000s</div>
               <div className="flex items-center gap-2"><LineChartIcon size={18} /> Valuation date: {input.profile.valuationDate}</div>
             </div>
           </div>
         </div>
+
+        <Card className="border-slate-300 bg-white/90">
+          <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Valuation workflow mode</p>
+              <p className="mt-1 text-sm text-slate-600">Choose a fast owner estimate or the full professional due-diligence workflow.</p>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button className={`rounded-xl border px-5 py-3 text-sm font-semibold transition ${mode === "simple" ? "border-teal-700 bg-teal-700 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-teal-600"}`} onClick={() => switchMode("simple")}>Simple Mode</button>
+              <button className={`rounded-xl border px-5 py-3 text-sm font-semibold transition ${mode === "professional" ? "border-slate-950 bg-slate-950 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-slate-950"}`} onClick={() => switchMode("professional")}>Professional Mode</button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {mode === "simple" ? (
+          <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+            <Card>
+              <CardHeader>
+                <CardTitle>Simple valuation inputs</CardTitle>
+                <CardDescription>Enter the core information needed for a three-minute indicative SME valuation. Advanced assumptions are auto-filled and still run through the same DCF valuation engine.</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-1.5"><Label>Company name</Label><Input value={simpleInput.companyName} onChange={(event) => updateSimple("companyName", event.target.value)} /></div>
+                <div className="space-y-1.5"><Label>Country</Label><Input value={simpleInput.country} onChange={(event) => updateSimple("country", event.target.value)} /></div>
+                <div className="space-y-1.5"><Label>Currency</Label><Input value={simpleInput.currency} onChange={(event) => updateSimple("currency", event.target.value)} /></div>
+                <div className="space-y-1.5"><Label>Industry</Label><Input value={simpleInput.industry} onChange={(event) => updateSimple("industry", event.target.value)} /></div>
+                <NumberField label="Latest revenue" value={simpleInput.latestRevenue} onChange={(value) => updateSimple("latestRevenue", value)} />
+                <NumberField label="Latest EBITDA" value={simpleInput.latestEbitda} onChange={(value) => updateSimple("latestEbitda", value)} />
+                <NumberField label="Cash" value={simpleInput.cash} onChange={(value) => updateSimple("cash", value)} />
+                <NumberField label="Debt" value={simpleInput.debt} onChange={(value) => updateSimple("debt", value)} />
+                <NumberField label="Expected annual revenue growth" value={simpleInput.expectedAnnualRevenueGrowth} percent onChange={(value) => updateSimple("expectedAnnualRevenueGrowth", value)} />
+                <NumberField label="Expected EBITDA margin" value={simpleInput.expectedEbitdaMargin} percent onChange={(value) => updateSimple("expectedEbitdaMargin", value)} />
+                <div className="space-y-1.5 md:col-span-2"><Label>Valuation date</Label><Input value={simpleInput.valuationDate} onChange={(event) => updateSimple("valuationDate", event.target.value)} /></div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-teal-200 bg-teal-50/40">
+              <CardHeader>
+                <CardTitle>Simple Mode valuation result</CardTitle>
+                <CardDescription>This is a simplified indicative valuation based on default assumptions. Use Professional Mode for detailed due diligence.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <MetricCard label="Enterprise Value" value={money(model.dcf.enterpriseValue, input.profile.currency)} helper="DCF enterprise value" />
+                  <MetricCard label="Equity Value" value={money(model.bridge.equityValue, input.profile.currency)} helper="After cash and debt bridge" />
+                  <MetricCard label="Adjusted Equity Value" value={money(model.discounts.adjustedEquityValue, input.profile.currency)} helper="After private company discounts" />
+                  <MetricCard label="EV / EBITDA" value={multiple(model.executiveSummary.evToNormalizedEbitda)} helper="Based on latest EBITDA" />
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <h3 className="text-sm font-bold uppercase tracking-wide text-slate-600">Bear / Base / Bull range</h3>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                    {model.scenarioAnalysis.map((scenario) => (
+                      <div key={scenario.name} className="rounded-xl bg-slate-50 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{scenario.name}</p>
+                        <p className="mt-2 text-lg font-bold text-slate-950">{money(scenario.adjustedEquityValue, input.profile.currency)}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                  <h3 className="flex items-center gap-2 text-sm font-bold text-amber-950"><AlertCircle size={16} /> Key warnings</h3>
+                  {model.warnings.length > 0 ? (
+                    <ul className="mt-3 space-y-2 text-sm text-amber-950">
+                      {model.warnings.slice(0, 4).map((warning) => <li key={warning.code}>{warning.message}</li>)}
+                    </ul>
+                  ) : (
+                    <p className="mt-3 text-sm text-amber-950">No valuation warnings triggered under the simplified assumptions.</p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </section>
+        ) : (
+          <>
 
         <div className="grid gap-4 lg:grid-cols-3">
           <MetricCard label="Enterprise Value" value={money(model.dcf.enterpriseValue, input.profile.currency)} helper="PV of explicit FCFs plus PV of terminal value" />
@@ -320,6 +414,7 @@ export default function Home() {
             </CardHeader>
             <CardContent className="grid gap-4 md:grid-cols-2">
               <div className="space-y-1.5"><Label>Company name</Label><Input value={input.profile.name} onChange={(e) => update(["profile", "name"], e.target.value)} /></div>
+              <div className="space-y-1.5"><Label>Country</Label><Input value={input.profile.country} onChange={(e) => update(["profile", "country"], e.target.value)} /></div>
               <div className="space-y-1.5"><Label>Industry</Label><Input value={input.profile.industry} onChange={(e) => update(["profile", "industry"], e.target.value)} /></div>
               <div className="space-y-1.5"><Label>Currency</Label><Input value={input.profile.currency} onChange={(e) => update(["profile", "currency"], e.target.value)} /></div>
               <div className="space-y-1.5"><Label>Valuation date</Label><Input value={input.profile.valuationDate} onChange={(e) => update(["profile", "valuationDate"], e.target.value)} /></div>
@@ -790,6 +885,8 @@ export default function Home() {
             <button className="rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={downloadCsvReport}>Download CSV</button>
           </CardContent>
         </Card>
+          </>
+        )}
       </section>
     </main>
   );
