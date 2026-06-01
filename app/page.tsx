@@ -40,8 +40,11 @@ import { valuationInputSchema, type ValuationInput } from "@/lib/valuation/types
 import { calculateWacc } from "@/lib/valuation/wacc";
 
 type PercentArrayKey = "revenueGrowth" | "ebitdaMargin" | "depreciationPctRevenue" | "capexPctRevenue";
+type ValuationMode = "simple" | "professional";
+type WizardInput = SimpleModeInput & { valuationType: ValuationMode };
 
 const defaultSimpleModeInput = simpleInputFromValuationInput(defaultValuationInput);
+const defaultWizardInput: WizardInput = { ...defaultSimpleModeInput, valuationType: "simple" };
 
 type WorkflowStatus = "complete" | "warning" | "missing inputs";
 
@@ -164,7 +167,10 @@ function NumberField({ label, value, onChange, percent = false }: { label: strin
 }
 
 export default function Home() {
-  const [mode, setMode] = useState<"simple" | "professional">("simple");
+  const [workspaceStarted, setWorkspaceStarted] = useState(false);
+  const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(1);
+  const [wizardInput, setWizardInput] = useState<WizardInput>(defaultWizardInput);
+  const [mode, setMode] = useState<ValuationMode>("simple");
   const [input, setInput] = useState<ValuationInput>(() => buildValuationInputFromSimpleMode(defaultSimpleModeInput));
   const [simpleInput, setSimpleInput] = useState<SimpleModeInput>(defaultSimpleModeInput);
 
@@ -197,13 +203,59 @@ export default function Home() {
     }));
   }
 
+  function updateWizard<K extends keyof WizardInput>(key: K, value: WizardInput[K]) {
+    setWizardInput((current) => ({ ...current, [key]: value }));
+  }
+
+  function startValuation() {
+    if (wizardInput.valuationType === "simple") {
+      const nextSimpleInput: SimpleModeInput = {
+        companyName: wizardInput.companyName,
+        country: wizardInput.country,
+        currency: wizardInput.currency,
+        industry: wizardInput.industry,
+        latestRevenue: wizardInput.latestRevenue,
+        latestEbitda: wizardInput.latestEbitda,
+        cash: wizardInput.cash,
+        debt: wizardInput.debt,
+        expectedAnnualRevenueGrowth: wizardInput.expectedAnnualRevenueGrowth,
+        expectedEbitdaMargin: wizardInput.expectedEbitdaMargin,
+        valuationDate: wizardInput.valuationDate,
+      };
+      setSimpleInput(nextSimpleInput);
+      setInput(buildValuationInputFromSimpleMode(nextSimpleInput));
+      setMode("simple");
+    } else {
+      const professionalInput: ValuationInput = {
+        ...defaultValuationInput,
+        profile: {
+          ...defaultValuationInput.profile,
+          name: wizardInput.companyName,
+          country: wizardInput.country,
+          currency: wizardInput.currency,
+          industry: wizardInput.industry,
+        },
+      };
+      setInput(professionalInput);
+      setSimpleInput(simpleInputFromValuationInput(professionalInput));
+      setMode("professional");
+    }
+    setWorkspaceStarted(true);
+  }
+
+  function startNewValuation() {
+    setWizardInput({ ...simpleInputFromValuationInput(input), valuationType: mode });
+    setWizardStep(1);
+    setWorkspaceStarted(false);
+  }
+
   function updateSimple<K extends keyof SimpleModeInput>(key: K, value: SimpleModeInput[K]) {
     const next: SimpleModeInput = { ...simpleInput, [key]: value };
     setSimpleInput(next);
     setInput(buildValuationInputFromSimpleMode(next));
   }
 
-  function switchMode(nextMode: "simple" | "professional") {
+  function switchMode(nextMode: ValuationMode) {
     if (nextMode === "simple") {
       const nextSimpleInput = simpleInputFromValuationInput(input);
       setSimpleInput(nextSimpleInput);
@@ -294,6 +346,85 @@ export default function Home() {
     { id: "export", label: "10. Export", status: validation.success ? "complete" : "warning" },
   ];
 
+  if (!workspaceStarted) {
+    return (
+      <main className="min-h-screen px-6 py-8 lg:px-10">
+        <section className="mx-auto max-w-5xl space-y-8">
+          <div className="rounded-3xl border border-slate-200 bg-slate-950 p-8 text-white shadow-xl">
+            <Badge className="border-teal-400/30 bg-teal-400/10 text-teal-100">New valuation wizard</Badge>
+            <h1 className="mt-5 max-w-3xl text-4xl font-bold tracking-tight lg:text-5xl">Start a private company valuation</h1>
+            <p className="mt-4 max-w-3xl text-base leading-7 text-slate-300">Create a new local valuation workspace, choose the level of detail, and prefill the model before entering the analysis.</p>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            {[1, 2, 3].map((step) => (
+              <button key={step} className={`rounded-2xl border p-4 text-left text-sm font-semibold transition ${wizardStep === step ? "border-teal-600 bg-teal-50 text-teal-900" : "border-slate-200 bg-white text-slate-700 hover:border-teal-400"}`} onClick={() => setWizardStep(step as 1 | 2 | 3)}>
+                <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Step {step}</span>
+                <span className="mt-1 block">{step === 1 ? "Company basics" : step === 2 ? "Valuation type" : "Financial starting point"}</span>
+              </button>
+            ))}
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>{wizardStep === 1 ? "Step 1: Company basics" : wizardStep === 2 ? "Step 2: Valuation type" : "Step 3: Financial starting point"}</CardTitle>
+              <CardDescription>{wizardStep === 1 ? "Set the core profile used throughout the valuation workspace." : wizardStep === 2 ? "Choose a three-minute owner estimate or the full professional workflow." : wizardInput.valuationType === "simple" ? "Provide the core financial inputs that will populate Simple Mode." : "Professional valuations start from the current default dataset and apply the company profile from the wizard."}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {wizardStep === 1 && (
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-1.5"><Label>Company name</Label><Input value={wizardInput.companyName} onChange={(event) => updateWizard("companyName", event.target.value)} /></div>
+                  <div className="space-y-1.5"><Label>Country</Label><Input value={wizardInput.country} onChange={(event) => updateWizard("country", event.target.value)} /></div>
+                  <div className="space-y-1.5"><Label>Currency</Label><Input value={wizardInput.currency} onChange={(event) => updateWizard("currency", event.target.value)} /></div>
+                  <div className="space-y-1.5"><Label>Industry</Label><Input value={wizardInput.industry} onChange={(event) => updateWizard("industry", event.target.value)} /></div>
+                </div>
+              )}
+
+              {wizardStep === 2 && (
+                <div className="grid gap-4 md:grid-cols-2">
+                  <button className={`rounded-2xl border p-5 text-left transition ${wizardInput.valuationType === "simple" ? "border-teal-700 bg-teal-50" : "border-slate-200 bg-white hover:border-teal-500"}`} onClick={() => updateWizard("valuationType", "simple")}>
+                    <p className="text-lg font-bold text-slate-950">Simple valuation</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">Fast indicative estimate for small business owners using default assumptions.</p>
+                  </button>
+                  <button className={`rounded-2xl border p-5 text-left transition ${wizardInput.valuationType === "professional" ? "border-slate-950 bg-slate-50" : "border-slate-200 bg-white hover:border-slate-500"}`} onClick={() => updateWizard("valuationType", "professional")}>
+                    <p className="text-lg font-bold text-slate-950">Professional valuation</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">Full multi-section workflow with historicals, normalization, WACC, DCF, market approach, diagnostics, and exports.</p>
+                  </button>
+                </div>
+              )}
+
+              {wizardStep === 3 && wizardInput.valuationType === "simple" && (
+                <div className="grid gap-4 md:grid-cols-2">
+                  <NumberField label="Latest revenue" value={wizardInput.latestRevenue} onChange={(value) => updateWizard("latestRevenue", value)} />
+                  <NumberField label="Latest EBITDA" value={wizardInput.latestEbitda} onChange={(value) => updateWizard("latestEbitda", value)} />
+                  <NumberField label="Cash" value={wizardInput.cash} onChange={(value) => updateWizard("cash", value)} />
+                  <NumberField label="Debt" value={wizardInput.debt} onChange={(value) => updateWizard("debt", value)} />
+                  <NumberField label="Expected annual revenue growth" value={wizardInput.expectedAnnualRevenueGrowth} percent onChange={(value) => updateWizard("expectedAnnualRevenueGrowth", value)} />
+                  <NumberField label="Expected EBITDA margin" value={wizardInput.expectedEbitdaMargin} percent onChange={(value) => updateWizard("expectedEbitdaMargin", value)} />
+                </div>
+              )}
+
+              {wizardStep === 3 && wizardInput.valuationType === "professional" && (
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm leading-6 text-slate-700">
+                  <p className="font-semibold text-slate-950">Professional valuation will use the current default dataset.</p>
+                  <p className="mt-2">The company profile will be updated to {wizardInput.companyName}, {wizardInput.country}, {wizardInput.currency}, {wizardInput.industry}. All professional sections and inputs remain editable after the workspace opens.</p>
+                </div>
+              )}
+
+              <div className="flex flex-col gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:items-center sm:justify-between">
+                <button className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-teal-600 hover:text-teal-800" onClick={() => setWizardStep((current) => (current === 1 ? 1 : ((current - 1) as 1 | 2 | 3)))}>Back</button>
+                <div className="flex gap-3">
+                  {wizardStep < 3 && <button className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={() => setWizardStep((current) => ((current + 1) as 1 | 2 | 3))}>Continue</button>}
+                  {wizardStep === 3 && <button className="rounded-xl bg-teal-700 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={startValuation}>Start valuation</button>}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen px-6 py-8 lg:px-10">
       <section className="mx-auto max-w-7xl space-y-8">
@@ -310,6 +441,7 @@ export default function Home() {
               <div className="flex items-center gap-2"><Building2 size={18} /> {input.profile.name}</div>
               <div className="flex items-center gap-2"><Calculator size={18} /> {input.profile.country} · Currency: {input.profile.currency} in 000s</div>
               <div className="flex items-center gap-2"><LineChartIcon size={18} /> Valuation date: {input.profile.valuationDate}</div>
+              <button className="mt-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/20" onClick={startNewValuation}>Start new valuation</button>
             </div>
           </div>
         </div>
