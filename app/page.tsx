@@ -108,6 +108,11 @@ function money(value: number, currency = "USD") {
   return Number.isFinite(value) ? `${currency} ${currencyFormatter.format(value)}` : "N/M";
 }
 
+function chartMoney(value: unknown, currency = "USD") {
+  const numericValue = typeof value === "number" ? value : Number(value ?? 0);
+  return money(numericValue, currency);
+}
+
 function pct(value: number) {
   return Number.isFinite(value) ? percentFormatter.format(value) : "N/M";
 }
@@ -399,7 +404,7 @@ export default function Home() {
                 {input.workingCapital.nwcPctRevenue.map((value, index) => <NumberField key={index} label={`${model.forecastYears[index].year}`} value={value} percent onChange={(next) => updateWorkingCapital(index, next)} />)}
               </div>
               <ResponsiveContainer width="100%" height={240} className="mt-6">
-                <AreaChart data={model.forecastYears}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="year" /><YAxis /><Tooltip formatter={(v: number) => money(v, input.profile.currency)} /><Area dataKey="freeCashFlow" name="Free Cash Flow" fill="#0f766e" stroke="#0f766e" fillOpacity={0.18} /></AreaChart>
+                <AreaChart data={model.forecastYears}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="year" /><YAxis /><Tooltip formatter={(value) => chartMoney(value, input.profile.currency)} /><Area dataKey="freeCashFlow" name="Free Cash Flow" fill="#0f766e" stroke="#0f766e" fillOpacity={0.18} /></AreaChart>
               </ResponsiveContainer>
             </CardContent>
           </Card>
@@ -466,7 +471,7 @@ export default function Home() {
             <CardHeader><CardTitle>10. Valuation Output</CardTitle><CardDescription>Intermediate calculations from projected operating performance to present value.</CardDescription></CardHeader>
             <CardContent className="space-y-5">
               <ResponsiveContainer width="100%" height={260}>
-                <BarChart data={model.dcf.forecastYears}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="year" /><YAxis /><Tooltip formatter={(v: number) => money(v, input.profile.currency)} /><Legend /><Bar dataKey="freeCashFlow" name="FCF" fill="#0f766e" /><Bar dataKey="presentValueFcf" name="PV of FCF" fill="#0f3d5e" /></BarChart>
+                <BarChart data={model.dcf.forecastYears}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="year" /><YAxis /><Tooltip formatter={(value) => chartMoney(value, input.profile.currency)} /><Legend /><Bar dataKey="freeCashFlow" name="FCF" fill="#0f766e" /><Bar dataKey="presentValueFcf" name="PV of FCF" fill="#0f3d5e" /></BarChart>
               </ResponsiveContainer>
               <div className="grid gap-3 md:grid-cols-4">
                 <div className="rounded-xl bg-slate-50 p-4"><p className="text-xs text-slate-500">PV of FCFs</p><p className="font-bold">{money(model.dcf.presentValueOfFcfs, input.profile.currency)}</p></div>
@@ -703,7 +708,7 @@ export default function Home() {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="name" />
                 <YAxis />
-                <Tooltip formatter={(value: number) => money(value, input.profile.currency)} />
+                <Tooltip formatter={(value) => chartMoney(value, input.profile.currency)} />
                 <Legend />
                 <Bar dataKey="adjustedEquityValue" name="Adjusted Equity Value" fill="#0f766e" />
               </BarChart>
@@ -726,7 +731,7 @@ export default function Home() {
               </tbody>
             </table>
             <ResponsiveContainer width="100%" height={240} className="mt-6">
-              <LineChart data={model.dcf.forecastYears}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="year" /><YAxis /><Tooltip formatter={(v: number) => money(v, input.profile.currency)} /><Legend /><Line type="monotone" dataKey="revenue" name="Revenue" stroke="#0f3d5e" strokeWidth={2} /><Line type="monotone" dataKey="ebitda" name="EBITDA" stroke="#0f766e" strokeWidth={2} /></LineChart>
+              <LineChart data={model.dcf.forecastYears}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="year" /><YAxis /><Tooltip formatter={(value) => chartMoney(value, input.profile.currency)} /><Legend /><Line type="monotone" dataKey="revenue" name="Revenue" stroke="#0f3d5e" strokeWidth={2} /><Line type="monotone" dataKey="ebitda" name="EBITDA" stroke="#0f766e" strokeWidth={2} /></LineChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
