@@ -41,6 +41,7 @@ import {
 } from "@/lib/valuation/output";
 import { calculateScenarioAnalysis } from "@/lib/valuation/scenarios";
 import { applyIndustryTemplate, getIndustryTemplate, industryTemplates, type IndustryTemplate, type TemplateValue } from "@/lib/valuation/industry-templates";
+import { suggestIndustryTemplateFromPkd, type PkdIndustrySuggestion } from "@/lib/valuation/pkd-industry-mapping";
 import { buildValuationInputFromSimpleMode, simpleInputFromValuationInput, type SimpleModeInput } from "@/lib/valuation/simple-mode";
 import { buildCenteredSensitivityCases, buildSensitivityTable } from "@/lib/valuation/sensitivity";
 import { valuationInputSchema, type ValuationInput } from "@/lib/valuation/types";
@@ -221,6 +222,24 @@ function TemplateAssumptionTable({ template }: { template: IndustryTemplate }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function PkdSuggestionPanel({ suggestion, onApply }: { suggestion: PkdIndustrySuggestion | null; onApply: () => void }) {
+  if (!suggestion) {
+    return null;
+  }
+
+  return (
+    <div className="rounded-2xl border border-teal-200 bg-teal-50 p-4 text-sm">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="font-semibold text-teal-950">{suggestion.message}</p>
+          <p className="mt-1 text-xs text-teal-800">PKD division {suggestion.division} maps to the existing {suggestion.industryTemplateName} industry template. Values remain editable.</p>
+        </div>
+        <button className="rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={onApply}>Apply suggested industry template</button>
+      </div>
     </div>
   );
 }
@@ -680,6 +699,26 @@ export default function Home() {
     setInput((current) => applyIndustryTemplate(current, template));
   }
 
+  function applySuggestedIndustryTemplate(suggestion: PkdIndustrySuggestion | null) {
+    if (!suggestion) {
+      return;
+    }
+    applyTemplateToInput(suggestion.industryTemplateName);
+    setSimpleInput((current) => ({ ...current, industry: suggestion.industryTemplateName }));
+  }
+
+  function applyWizardSuggestedIndustryTemplate(suggestion: PkdIndustrySuggestion | null) {
+    if (!suggestion) {
+      return;
+    }
+    setWizardInput((current) => ({
+      ...current,
+      industry: suggestion.industryTemplateName,
+      industryTemplateName: suggestion.industryTemplateName,
+      applyIndustryTemplate: true,
+    }));
+  }
+
   function updateSimple<K extends keyof SimpleModeInput>(key: K, value: SimpleModeInput[K]) {
     const next: SimpleModeInput = { ...simpleInput, [key]: value };
     setSimpleInput(next);
@@ -757,6 +796,8 @@ export default function Home() {
   const normalizationMarginUplift = calculateNormalizationMarginUplift(input.historicals, input.normalizationAdjustments);
   const wizardIndustryTemplate = getIndustryTemplate(wizardInput.industryTemplateName);
   const professionalIndustryTemplate = getIndustryTemplate(input.profile.industry);
+  const wizardPkdSuggestion = suggestIndustryTemplateFromPkd(wizardInput.pkdCode);
+  const activePkdSuggestion = suggestIndustryTemplateFromPkd(input.profile.pkdCode);
   const companySources = getCompanyDataSources(input.profile.country);
   const marketSources = getMarketDataSources();
   const validationPaths = validation.success ? [] : validation.error.issues.map((issue) => String(issue.path[0] ?? ""));
@@ -816,7 +857,8 @@ export default function Home() {
                   <div className="space-y-1.5"><Label>Website (optional)</Label><Input value={wizardInput.website} onChange={(event) => updateWizard("website", event.target.value)} placeholder="https://example.com" /></div>
                   <div className="space-y-3 rounded-2xl border border-teal-100 bg-teal-50/60 p-4 md:col-span-2"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold text-slate-950">Public KRS profile</p><p className="text-xs text-slate-600">Free registry profile data only. Financial statement data still requires manual input or an external financial-data provider.</p></div><button className="rounded-xl border border-teal-200 bg-white px-4 py-2 text-sm font-semibold text-teal-800 transition hover:border-teal-700" onClick={() => fetchKrsProfile(wizardInput.registrationNumber)}>Fetch public KRS profile</button></div>{krsStatus && <p className="text-sm text-slate-600">{krsStatus}</p>}{krsProfile ? <KrsProfilePreview profile={krsProfile} onApply={applyKrsProfile} /> : null}</div>
                   <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:col-span-2"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold text-slate-950">BizRaport financial data search</p><p className="text-xs text-slate-500">Search by company name, KRS, NIP, or REGON. Credentials stay on the server.</p></div><button className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-teal-600 hover:text-teal-800" onClick={searchBizRaportFromWizard}>Search company in BizRaport</button></div>{bizRaportStatus && <p className="text-sm text-slate-600">{bizRaportStatus}</p>}{bizRaportSearchResults.length > 0 && <div className="grid gap-2 sm:grid-cols-2">{bizRaportSearchResults.map((result) => <button key={result.krs} className={`rounded-xl border px-3 py-2 text-left text-sm font-semibold ${selectedBizRaportKrs === result.krs ? "border-teal-600 bg-teal-50 text-teal-900" : "border-slate-200 bg-white text-slate-700"}`} onClick={() => selectBizRaportKrs(result.krs)}>KRS {result.krs}</button>)}</div>}</div>
-                  <div className="space-y-1.5 md:col-span-2"><Label>Industry template</Label><select className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 shadow-sm focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-100" value={wizardInput.industryTemplateName} onChange={(event) => selectWizardIndustryTemplate(event.target.value)}>{industryTemplates.map((template) => <option key={template.name} value={template.name}>{template.name}</option>)}</select></div>
+                  <div className="md:col-span-2"><PkdSuggestionPanel suggestion={wizardPkdSuggestion} onApply={() => applyWizardSuggestedIndustryTemplate(wizardPkdSuggestion)} /></div>
+                  <div className="space-y-1.5 md:col-span-2"><Label>Industry template</Label><select className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 shadow-sm focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-100" value={wizardInput.industryTemplateName} onChange={(event) => selectWizardIndustryTemplate(event.target.value)}><option value="">Select template</option>{industryTemplates.map((template) => <option key={template.name} value={template.name}>{template.name}</option>)}</select></div>
                   {wizardIndustryTemplate && <div className="space-y-3 md:col-span-2"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold text-slate-950">Suggested assumptions for {wizardIndustryTemplate.name}</p><p className="text-xs text-slate-500">Editable placeholders only; Damodaran-labeled values are manual seeds pending automated import, not live market data.</p></div><button className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={() => updateWizard("applyIndustryTemplate", true)}>Apply template assumptions</button></div><TemplateAssumptionTable template={wizardIndustryTemplate} />{wizardInput.applyIndustryTemplate && <Badge className="border-teal-200 bg-teal-50 text-teal-800">Template will be applied when valuation starts</Badge>}</div>}
                 </div>
               )}
@@ -914,6 +956,7 @@ export default function Home() {
                 <div className="space-y-1.5"><Label>Industry</Label><Input value={simpleInput.industry} onChange={(event) => updateSimple("industry", event.target.value)} /></div>
                 <div className="space-y-1.5"><Label>Registration Number</Label><Input value={simpleInput.registrationNumber} onChange={(event) => updateSimple("registrationNumber", event.target.value)} /></div>
                 <div className="space-y-3 rounded-2xl border border-teal-100 bg-teal-50/60 p-4 md:col-span-2"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold text-slate-950">Public KRS profile</p><p className="text-xs text-slate-600">Public KRS API provides registry data only. Financial statement data still requires manual input or an external financial-data provider.</p></div><button className="rounded-xl border border-teal-200 bg-white px-4 py-2 text-sm font-semibold text-teal-800 transition hover:border-teal-700" onClick={() => fetchKrsProfile(simpleInput.registrationNumber)}>Fetch public KRS profile</button></div>{krsStatus && <p className="text-sm text-slate-600">{krsStatus}</p>}{krsProfile ? <KrsProfilePreview profile={krsProfile} onApply={applyKrsProfile} /> : null}</div>
+                <div className="md:col-span-2"><PkdSuggestionPanel suggestion={activePkdSuggestion} onApply={() => applySuggestedIndustryTemplate(activePkdSuggestion)} /></div>
                 {forecastAutoSeeded ? <div className="md:col-span-2"><Badge className="border-teal-200 bg-teal-50 text-teal-800">Auto-generated from historical financials</Badge>{forecastSeedNotes.map((note) => <p key={note} className="mt-2 text-xs text-slate-500">{note}</p>)}</div> : null}
                 <NumberField label="Latest revenue" value={simpleInput.latestRevenue} onChange={(value) => updateSimple("latestRevenue", value)} />
                 <NumberField label="Latest EBITDA" value={simpleInput.latestEbitda} onChange={(value) => updateSimple("latestEbitda", value)} />
@@ -1029,6 +1072,7 @@ export default function Home() {
           <Card>
             <CardHeader><CardTitle>Industry Template</CardTitle><CardDescription>Optional editable assumption seed. Values are not live market data.</CardDescription></CardHeader>
             <CardContent className="space-y-4">
+              <PkdSuggestionPanel suggestion={activePkdSuggestion} onApply={() => applySuggestedIndustryTemplate(activePkdSuggestion)} />
               <div className="space-y-1.5"><Label>Industry template selector</Label><select className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 shadow-sm focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-100" value={professionalIndustryTemplate?.name ?? ""} onChange={(event) => update(["profile", "industry"], event.target.value)}><option value="">Select template</option>{industryTemplates.map((template) => <option key={template.name} value={template.name}>{template.name}</option>)}</select></div>
               {professionalIndustryTemplate ? <><TemplateAssumptionTable template={professionalIndustryTemplate} /><button className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={() => applyTemplateToInput(professionalIndustryTemplate.name)}>Apply template assumptions</button></> : <p className="text-sm text-slate-500">Select an industry template to review suggested assumptions and sources.</p>}
             </CardContent>
