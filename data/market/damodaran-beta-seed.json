@@ -1,0 +1,58 @@
+{
+  "source": "Damodaran Industry Betas",
+  "sourceUrl": "https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/Betas.html",
+  "sourceDate": "2026-01-09",
+  "dataCurrentUrl": "https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datacurrent.html",
+  "isLiveData": false,
+  "refreshStatus": "manual_seed",
+  "industries": {
+    "Manufacturing": {
+      "damodaranIndustry": "Machinery",
+      "unleveredBeta": 1.05,
+      "cashAdjustedBeta": 1.10,
+      "confidence": "medium"
+    },
+    "Software": {
+      "damodaranIndustry": "Software (System & Application)",
+      "unleveredBeta": 1.20,
+      "cashAdjustedBeta": 1.25,
+      "confidence": "medium"
+    },
+    "Construction": {
+      "damodaranIndustry": "Engineering/Construction",
+      "unleveredBeta": 1.15,
+      "cashAdjustedBeta": 1.20,
+      "confidence": "medium"
+    },
+    "Wholesale": {
+      "damodaranIndustry": "Retail (Distributors)",
+      "unleveredBeta": 0.95,
+      "cashAdjustedBeta": 1.00,
+      "confidence": "medium"
+    },
+    "Retail": {
+      "damodaranIndustry": "Retail (General)",
+      "unleveredBeta": 1.05,
+      "cashAdjustedBeta": 1.10,
+      "confidence": "medium"
+    },
+    "Logistics": {
+      "damodaranIndustry": "Transportation",
+      "unleveredBeta": 0.90,
+      "cashAdjustedBeta": 0.95,
+      "confidence": "medium"
+    },
+    "Real Estate": {
+      "damodaranIndustry": "Real Estate (General/Diversified)",
+      "unleveredBeta": 0.85,
+      "cashAdjustedBeta": 0.90,
+      "confidence": "medium"
+    },
+    "Professional Services": {
+      "damodaranIndustry": "Business & Consumer Services",
+      "unleveredBeta": 1.00,
+      "cashAdjustedBeta": 1.05,
+      "confidence": "medium"
+    }
+  }
+}
