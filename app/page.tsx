@@ -21,7 +21,7 @@ import { createDamodaranManualSeedSnapshot } from "@/lib/data-sources/damodaran"
 import { createFredManualSeedSnapshot } from "@/lib/data-sources/fred";
 import { cleanBizRaportKrs, isKrs, isNip } from "@/lib/data-sources/identifiers";
 import { getCompanyDataSources, getMarketDataSources } from "@/lib/data-sources/mapping";
-import type { CompanyFinancialData, DataPoint, ImportedFinancialYear, MarketDataSnapshot } from "@/lib/data-sources/types";
+import type { CompanyFinancialData, CompanyProfileData, DataPoint, ImportedFinancialYear, MarketDataSnapshot } from "@/lib/data-sources/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,7 +30,7 @@ import { countryOptions, currencyOptions, formatCurrencyOption, getDefaultCurren
 import { calculateDcf } from "@/lib/valuation/dcf";
 import { calculateValuationDiagnostics } from "@/lib/valuation/diagnostics";
 import { buildCombinedCsvExport, buildReportJson, buildReportSummaryText, buildValuationReport } from "@/lib/valuation/export";
-import { defaultValuationInput } from "@/lib/valuation/default-data";
+import { createBlankValuationInput } from "@/lib/valuation/default-data";
 import { calculateNormalizationMarginUplift, forecastFinancials, normalizeLatestEbitda, sumNormalizationAdjustments } from "@/lib/valuation/forecast";
 import {
   calculateEvToEquityBridgeOutput,
@@ -51,8 +51,9 @@ type ValuationMode = "simple" | "professional";
 type WizardInput = SimpleModeInput & { valuationType: ValuationMode; industryTemplateName: string; applyIndustryTemplate: boolean };
 type BizRaportSearchItem = { krs: string };
 
-const defaultSimpleModeInput = simpleInputFromValuationInput(defaultValuationInput);
-const defaultWizardInput: WizardInput = { ...defaultSimpleModeInput, valuationType: "simple", industryTemplateName: "Manufacturing", applyIndustryTemplate: false };
+const blankValuationInput = createBlankValuationInput();
+const defaultSimpleModeInput = simpleInputFromValuationInput(blankValuationInput);
+const defaultWizardInput: WizardInput = { ...defaultSimpleModeInput, valuationType: "simple", industryTemplateName: "", applyIndustryTemplate: false };
 
 type WorkflowStatus = "complete" | "warning" | "missing inputs";
 
@@ -107,7 +108,7 @@ function WorkflowNav({ sections }: { sections: WorkflowSectionItem[] }) {
 }
 
 type ScalarPath =
-  | ["profile", "companyName" | "country" | "currency" | "registrationNumber" | "website" | "pkdCode" | "industry" | "valuationDate"]
+  | ["profile", keyof ValuationInput["profile"]]
   | ["forecast", "taxRate"]
   | ["wacc", keyof ValuationInput["wacc"]]
   | ["terminalValue", "perpetualGrowthRate" | "exitEbitdaMultiple"]
@@ -165,6 +166,25 @@ function DataPointRow({ label, dataPoint, formatter = String }: { label: string;
         <span className="text-right font-semibold text-slate-950">{dataPoint && dataPoint.value !== null ? formatter(dataPoint.value) : "Unavailable"}</span>
       </div>
       {dataPoint ? <SourceMeta dataPoint={dataPoint} /> : <span className="block text-xs text-slate-500">No source connected yet.</span>}
+    </div>
+  );
+}
+
+function KrsProfilePreview({ profile, onApply }: { profile: CompanyProfileData; onApply: () => void }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <DataPointRow label="Company name" dataPoint={profile.companyName} />
+      <DataPointRow label="KRS" dataPoint={profile.krs} />
+      <DataPointRow label="NIP" dataPoint={profile.nip} />
+      <DataPointRow label="REGON" dataPoint={profile.regon} />
+      <DataPointRow label="PKD" dataPoint={profile.pkdCode} />
+      <DataPointRow label="Address" dataPoint={profile.address} />
+      <DataPointRow label="Legal form" dataPoint={profile.legalForm} />
+      <DataPointRow label="Share capital" dataPoint={profile.shareCapital} />
+      {profile.registrationStatus ? <DataPointRow label="Registration status" dataPoint={profile.registrationStatus} /> : null}
+      {profile.warnings.length > 0 ? <p className="mt-3 text-xs text-amber-700">{profile.warnings.join(" ")}</p> : null}
+      <p className="mt-3 text-xs text-slate-500">Public KRS API provides registry data only. Financial statement data still requires manual input or an external financial-data provider.</p>
+      <button className="mt-3 rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={onApply}>Apply KRS profile</button>
     </div>
   );
 }
@@ -245,9 +265,11 @@ export default function Home() {
   const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(1);
   const [wizardInput, setWizardInput] = useState<WizardInput>(defaultWizardInput);
   const [mode, setMode] = useState<ValuationMode>("simple");
-  const [input, setInput] = useState<ValuationInput>(() => buildValuationInputFromSimpleMode(defaultSimpleModeInput));
+  const [input, setInput] = useState<ValuationInput>(() => blankValuationInput);
   const [simpleInput, setSimpleInput] = useState<SimpleModeInput>(defaultSimpleModeInput);
   const [companyData, setCompanyData] = useState<CompanyFinancialData | null>(null);
+  const [krsProfile, setKrsProfile] = useState<CompanyProfileData | null>(null);
+  const [krsStatus, setKrsStatus] = useState("");
   const [marketData, setMarketData] = useState<MarketDataSnapshot | null>(null);
   const [bizRaportSearchResults, setBizRaportSearchResults] = useState<BizRaportSearchItem[]>([]);
   const [selectedBizRaportKrs, setSelectedBizRaportKrs] = useState("");
@@ -292,6 +314,86 @@ export default function Home() {
       country,
       currency: getDefaultCurrencyForCountry(country) ?? current.currency,
     }));
+  }
+
+  async function fetchKrsProfile(krsValue = input.profile.registrationNumber || wizardInput.registrationNumber) {
+    const selectedKrs = cleanBizRaportKrs(krsValue);
+    if (!isKrs(selectedKrs)) {
+      setKrsStatus("Enter a valid 10-digit KRS before fetching the public profile.");
+      return;
+    }
+
+    setKrsStatus("Fetching public KRS profile...");
+    try {
+      const response = await fetch(`/api/company-data/krs/fetch?krs=${encodeURIComponent(selectedKrs)}&rejestr=P`);
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Public KRS profile fetch failed.");
+      }
+      setKrsProfile(payload.data as CompanyProfileData);
+      setKrsStatus("Public KRS profile fetched. Review preview before applying.");
+    } catch (error) {
+      setKrsProfile(null);
+      setKrsStatus(error instanceof Error ? error.message : "Public KRS profile fetch failed.");
+    }
+  }
+
+  function applyKrsProfile() {
+    if (!krsProfile) {
+      setKrsStatus("Fetch a public KRS profile before applying.");
+      return;
+    }
+
+    const companyName = krsProfile.companyName?.value;
+    const krs = krsProfile.krs?.value;
+    const nip = krsProfile.nip?.value;
+    const regon = krsProfile.regon?.value;
+    const pkdCode = krsProfile.pkdCode?.value;
+    const legalForm = krsProfile.legalForm?.value;
+    const address = krsProfile.address?.value;
+    const shareCapital = krsProfile.shareCapital?.value;
+    const registrationStatus = krsProfile.registrationStatus?.value;
+
+    setWizardInput((current) => ({
+      ...current,
+      companyName: companyName ? String(companyName) : current.companyName,
+      registrationNumber: krs ? String(krs) : current.registrationNumber,
+      nip: nip ? String(nip) : current.nip,
+      regon: regon ? String(regon) : current.regon,
+      pkdCode: pkdCode ? String(pkdCode) : current.pkdCode,
+      legalForm: legalForm ? String(legalForm) : current.legalForm,
+      address: address ? String(address) : current.address,
+      shareCapital: shareCapital ? String(shareCapital) : current.shareCapital,
+      registrationStatus: registrationStatus ? String(registrationStatus) : current.registrationStatus,
+    }));
+    setSimpleInput((current) => ({
+      ...current,
+      companyName: companyName ? String(companyName) : current.companyName,
+      registrationNumber: krs ? String(krs) : current.registrationNumber,
+      nip: nip ? String(nip) : current.nip,
+      regon: regon ? String(regon) : current.regon,
+      pkdCode: pkdCode ? String(pkdCode) : current.pkdCode,
+      legalForm: legalForm ? String(legalForm) : current.legalForm,
+      address: address ? String(address) : current.address,
+      shareCapital: shareCapital ? String(shareCapital) : current.shareCapital,
+      registrationStatus: registrationStatus ? String(registrationStatus) : current.registrationStatus,
+    }));
+    setInput((current) => ({
+      ...current,
+      profile: {
+        ...current.profile,
+        companyName: companyName ? String(companyName) : current.profile.companyName,
+        registrationNumber: krs ? String(krs) : current.profile.registrationNumber,
+        nip: nip ? String(nip) : current.profile.nip,
+        regon: regon ? String(regon) : current.profile.regon,
+        pkdCode: pkdCode ? String(pkdCode) : current.profile.pkdCode,
+        legalForm: legalForm ? String(legalForm) : current.profile.legalForm,
+        address: address ? String(address) : current.profile.address,
+        shareCapital: shareCapital ? String(shareCapital) : current.profile.shareCapital,
+        registrationStatus: registrationStatus ? String(registrationStatus) : current.profile.registrationStatus,
+      },
+    }));
+    setKrsStatus("Public KRS profile applied after user confirmation.");
   }
 
   async function searchBizRaportFromWizard() {
@@ -416,7 +518,13 @@ export default function Home() {
         country: wizardInput.country,
         currency: wizardInput.currency,
         registrationNumber: wizardInput.registrationNumber,
+        nip: wizardInput.nip,
+        regon: wizardInput.regon,
         pkdCode: wizardInput.pkdCode,
+        legalForm: wizardInput.legalForm,
+        address: wizardInput.address,
+        shareCapital: wizardInput.shareCapital,
+        registrationStatus: wizardInput.registrationStatus,
         website: wizardInput.website,
         industry: wizardInput.industry,
         latestRevenue: wizardInput.latestRevenue,
@@ -435,14 +543,20 @@ export default function Home() {
       setMode("simple");
     } else {
       const professionalInput: ValuationInput = {
-        ...defaultValuationInput,
+        ...createBlankValuationInput(wizardInput.valuationDate),
         profile: {
-          ...defaultValuationInput.profile,
+          ...createBlankValuationInput(wizardInput.valuationDate).profile,
           companyName: wizardInput.companyName,
           country: wizardInput.country,
           currency: wizardInput.currency,
           registrationNumber: wizardInput.registrationNumber,
+          nip: wizardInput.nip,
+          regon: wizardInput.regon,
           pkdCode: wizardInput.pkdCode,
+          legalForm: wizardInput.legalForm,
+          address: wizardInput.address,
+          shareCapital: wizardInput.shareCapital,
+          registrationStatus: wizardInput.registrationStatus,
           website: wizardInput.website,
           industry: wizardInput.industry,
         },
@@ -457,8 +571,19 @@ export default function Home() {
   }
 
   function startNewValuation() {
-    setWizardInput({ ...simpleInputFromValuationInput(input), valuationType: mode, industryTemplateName: getIndustryTemplate(input.profile.industry)?.name ?? "Manufacturing", applyIndustryTemplate: false });
+    const nextBlankInput = createBlankValuationInput();
+    const nextSimpleInput = simpleInputFromValuationInput(nextBlankInput);
+    setWizardInput({ ...nextSimpleInput, valuationType: "simple", industryTemplateName: "", applyIndustryTemplate: false });
+    setSimpleInput(nextSimpleInput);
+    setInput(nextBlankInput);
+    setKrsProfile(null);
+    setCompanyData(null);
+    setBizRaportSearchResults([]);
+    setSelectedBizRaportKrs("");
+    setKrsStatus("");
+    setBizRaportStatus("");
     setWizardStep(1);
+    setMode("simple");
     setWorkspaceStarted(false);
   }
 
@@ -608,7 +733,8 @@ export default function Home() {
                   <div className="space-y-1.5"><Label>Industry</Label><Input value={wizardInput.industry} onChange={(event) => updateWizard("industry", event.target.value)} /></div>
                   <div className="space-y-1.5"><Label>Registration Number</Label><Input value={wizardInput.registrationNumber} onChange={(event) => updateWizard("registrationNumber", event.target.value)} /><p className="text-xs text-slate-500">This identifier will be used later for automatic company data retrieval.</p></div>
                   <div className="space-y-1.5"><Label>Website (optional)</Label><Input value={wizardInput.website} onChange={(event) => updateWizard("website", event.target.value)} placeholder="https://example.com" /></div>
-                  <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:col-span-2"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold text-slate-950">BizRaport company search</p><p className="text-xs text-slate-500">Search by company name, KRS, NIP, or REGON. Credentials stay on the server.</p></div><button className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-teal-600 hover:text-teal-800" onClick={searchBizRaportFromWizard}>Search company in BizRaport</button></div>{bizRaportStatus && <p className="text-sm text-slate-600">{bizRaportStatus}</p>}{bizRaportSearchResults.length > 0 && <div className="grid gap-2 sm:grid-cols-2">{bizRaportSearchResults.map((result) => <button key={result.krs} className={`rounded-xl border px-3 py-2 text-left text-sm font-semibold ${selectedBizRaportKrs === result.krs ? "border-teal-600 bg-teal-50 text-teal-900" : "border-slate-200 bg-white text-slate-700"}`} onClick={() => selectBizRaportKrs(result.krs)}>KRS {result.krs}</button>)}</div>}</div>
+                  <div className="space-y-3 rounded-2xl border border-teal-100 bg-teal-50/60 p-4 md:col-span-2"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold text-slate-950">Public KRS profile</p><p className="text-xs text-slate-600">Free registry profile data only. Financial statement data still requires manual input or an external financial-data provider.</p></div><button className="rounded-xl border border-teal-200 bg-white px-4 py-2 text-sm font-semibold text-teal-800 transition hover:border-teal-700" onClick={() => fetchKrsProfile(wizardInput.registrationNumber)}>Fetch public KRS profile</button></div>{krsStatus && <p className="text-sm text-slate-600">{krsStatus}</p>}{krsProfile ? <KrsProfilePreview profile={krsProfile} onApply={applyKrsProfile} /> : null}</div>
+                  <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:col-span-2"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold text-slate-950">BizRaport financial data search</p><p className="text-xs text-slate-500">Search by company name, KRS, NIP, or REGON. Credentials stay on the server.</p></div><button className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-teal-600 hover:text-teal-800" onClick={searchBizRaportFromWizard}>Search company in BizRaport</button></div>{bizRaportStatus && <p className="text-sm text-slate-600">{bizRaportStatus}</p>}{bizRaportSearchResults.length > 0 && <div className="grid gap-2 sm:grid-cols-2">{bizRaportSearchResults.map((result) => <button key={result.krs} className={`rounded-xl border px-3 py-2 text-left text-sm font-semibold ${selectedBizRaportKrs === result.krs ? "border-teal-600 bg-teal-50 text-teal-900" : "border-slate-200 bg-white text-slate-700"}`} onClick={() => selectBizRaportKrs(result.krs)}>KRS {result.krs}</button>)}</div>}</div>
                   <div className="space-y-1.5 md:col-span-2"><Label>Industry template</Label><select className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 shadow-sm focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-100" value={wizardInput.industryTemplateName} onChange={(event) => selectWizardIndustryTemplate(event.target.value)}>{industryTemplates.map((template) => <option key={template.name} value={template.name}>{template.name}</option>)}</select></div>
                   {wizardIndustryTemplate && <div className="space-y-3 md:col-span-2"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold text-slate-950">Suggested assumptions for {wizardIndustryTemplate.name}</p><p className="text-xs text-slate-500">Editable placeholders only; Damodaran-labeled values are manual seeds pending automated import, not live market data.</p></div><button className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={() => updateWizard("applyIndustryTemplate", true)}>Apply template assumptions</button></div><TemplateAssumptionTable template={wizardIndustryTemplate} />{wizardInput.applyIndustryTemplate && <Badge className="border-teal-200 bg-teal-50 text-teal-800">Template will be applied when valuation starts</Badge>}</div>}
                 </div>
@@ -705,6 +831,8 @@ export default function Home() {
                 <div className="space-y-1.5"><Label>Country</Label><Input value={simpleInput.country} onChange={(event) => updateSimple("country", event.target.value)} /></div>
                 <div className="space-y-1.5"><Label>Currency</Label><Input value={simpleInput.currency} onChange={(event) => updateSimple("currency", event.target.value)} /></div>
                 <div className="space-y-1.5"><Label>Industry</Label><Input value={simpleInput.industry} onChange={(event) => updateSimple("industry", event.target.value)} /></div>
+                <div className="space-y-1.5"><Label>Registration Number</Label><Input value={simpleInput.registrationNumber} onChange={(event) => updateSimple("registrationNumber", event.target.value)} /></div>
+                <div className="space-y-3 rounded-2xl border border-teal-100 bg-teal-50/60 p-4 md:col-span-2"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold text-slate-950">Public KRS profile</p><p className="text-xs text-slate-600">Public KRS API provides registry data only. Financial statement data still requires manual input or an external financial-data provider.</p></div><button className="rounded-xl border border-teal-200 bg-white px-4 py-2 text-sm font-semibold text-teal-800 transition hover:border-teal-700" onClick={() => fetchKrsProfile(simpleInput.registrationNumber)}>Fetch public KRS profile</button></div>{krsStatus && <p className="text-sm text-slate-600">{krsStatus}</p>}{krsProfile ? <KrsProfilePreview profile={krsProfile} onApply={applyKrsProfile} /> : null}</div>
                 <NumberField label="Latest revenue" value={simpleInput.latestRevenue} onChange={(value) => updateSimple("latestRevenue", value)} />
                 <NumberField label="Latest EBITDA" value={simpleInput.latestEbitda} onChange={(value) => updateSimple("latestEbitda", value)} />
                 <NumberField label="Cash" value={simpleInput.cash} onChange={(value) => updateSimple("cash", value)} />
@@ -751,9 +879,9 @@ export default function Home() {
               </CardContent>
             </Card>
             <Card className="xl:col-span-2">
-              <CardHeader><CardTitle>BizRaport Import Preview</CardTitle><CardDescription>Fetch company data by KRS/NIP, review imported values, then apply explicitly. Credentials stay on the server.</CardDescription></CardHeader>
+              <CardHeader><CardTitle>BizRaport Financial Import Preview</CardTitle><CardDescription>Fetch financial data by KRS/NIP, review imported values, then apply explicitly. Credentials stay on the server.</CardDescription></CardHeader>
               <CardContent className="space-y-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><p className="text-sm text-slate-600">Registration number: {input.profile.registrationNumber}</p><button className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={() => fetchBizRaportData(input.profile.registrationNumber)}>Fetch BizRaport data</button></div>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><p className="text-sm text-slate-600">Registration number: {input.profile.registrationNumber}</p><button className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={() => fetchBizRaportData(input.profile.registrationNumber)}>Fetch financials from BizRaport</button></div>
                 {bizRaportStatus && <p className="text-sm text-slate-600">{bizRaportStatus}</p>}
                 {companyData ? <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><DataPointRow label="Company name" dataPoint={companyData.companyName} /><DataPointRow label="Latest imported revenue" dataPoint={latestImportedYear(companyData)?.revenue} formatter={(value) => money(Number(value), input.profile.currency)} /><DataPointRow label="Latest imported EBITDA" dataPoint={latestImportedYear(companyData)?.ebitda} formatter={(value) => money(Number(value), input.profile.currency)} /><DataPointRow label="PKD code" dataPoint={companyData.pkdCode} /><p className="mt-3 text-xs text-amber-700">{companyData.warnings.join(" ")}</p><button className="mt-3 rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={applyImportedCompanyData}>Apply imported data</button></div> : <p className="text-sm text-slate-500">No imported BizRaport data preview yet.</p>}
               </CardContent>
@@ -792,9 +920,28 @@ export default function Home() {
               <div className="space-y-1.5"><Label>Currency</Label><Input value={input.profile.currency} onChange={(e) => update(["profile", "currency"], e.target.value)} /></div>
               <div className="space-y-1.5"><Label>Industry</Label><Input value={input.profile.industry} onChange={(e) => update(["profile", "industry"], e.target.value)} /></div>
               <div className="space-y-1.5"><Label>Registration Number</Label><Input value={input.profile.registrationNumber} onChange={(e) => update(["profile", "registrationNumber"], e.target.value)} /></div>
+              <div className="space-y-1.5"><Label>NIP</Label><Input value={input.profile.nip} onChange={(e) => update(["profile", "nip"], e.target.value)} /></div>
+              <div className="space-y-1.5"><Label>REGON</Label><Input value={input.profile.regon} onChange={(e) => update(["profile", "regon"], e.target.value)} /></div>
               <div className="space-y-1.5"><Label>Website (optional)</Label><Input value={input.profile.website} onChange={(e) => update(["profile", "website"], e.target.value)} /></div>
               <div className="space-y-1.5"><Label>PKD code</Label><Input value={input.profile.pkdCode} onChange={(e) => update(["profile", "pkdCode"], e.target.value)} /></div>
+              <div className="space-y-1.5"><Label>Legal form</Label><Input value={input.profile.legalForm} onChange={(e) => update(["profile", "legalForm"], e.target.value)} /></div>
+              <div className="space-y-1.5"><Label>Address</Label><Input value={input.profile.address} onChange={(e) => update(["profile", "address"], e.target.value)} /></div>
+              <div className="space-y-1.5"><Label>Share capital</Label><Input value={input.profile.shareCapital} onChange={(e) => update(["profile", "shareCapital"], e.target.value)} /></div>
+              <div className="space-y-1.5"><Label>Registration status</Label><Input value={input.profile.registrationStatus} onChange={(e) => update(["profile", "registrationStatus"], e.target.value)} /></div>
               <div className="space-y-1.5"><Label>Valuation date</Label><Input value={input.profile.valuationDate} onChange={(e) => update(["profile", "valuationDate"], e.target.value)} /></div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle>Company Imports</CardTitle><CardDescription>Import registry profile data first, then optionally fetch financials from BizRaport.</CardDescription></CardHeader>
+            <CardContent className="space-y-5">
+              <div>
+                <h3 className="text-sm font-bold uppercase tracking-wide text-slate-600">Company data</h3>
+                <p className="mt-1 text-sm text-slate-500">Available source mapping: {companySources.map((source) => source.name).join(", ") || "No mapped source"}</p>
+              </div>
+              <div className="space-y-3 rounded-2xl border border-teal-100 bg-teal-50/60 p-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold text-slate-950">Public KRS profile</p><p className="text-xs text-slate-600">Public KRS API provides registry data only. Financial statement data still requires manual input or an external financial-data provider.</p></div><button className="rounded-xl border border-teal-200 bg-white px-4 py-3 text-sm font-semibold text-teal-800 shadow-sm transition hover:border-teal-700" onClick={() => fetchKrsProfile(input.profile.registrationNumber)}>Fetch public KRS profile</button></div>{krsStatus && <p className="text-sm text-slate-600">{krsStatus}</p>}{krsProfile ? <KrsProfilePreview profile={krsProfile} onApply={applyKrsProfile} /> : null}</div>
+              <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold text-slate-950">BizRaport financial import</p><p className="text-xs text-slate-600">Optional financial-data provider. Credentials stay on the server.</p></div><button className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={() => fetchBizRaportData()}>Fetch financials from BizRaport</button></div>
+                {companyData ? <div className="rounded-2xl border border-slate-200 bg-white p-4"><DataPointRow label="Company name" dataPoint={companyData.companyName} /><DataPointRow label="Latest imported revenue" dataPoint={latestImportedYear(companyData)?.revenue} formatter={(value) => money(Number(value), input.profile.currency)} /><DataPointRow label="Latest imported EBITDA" dataPoint={latestImportedYear(companyData)?.ebitda} formatter={(value) => money(Number(value), input.profile.currency)} /><DataPointRow label="Cash" dataPoint={companyData.cash} formatter={(value) => money(Number(value), input.profile.currency)} /><DataPointRow label="Debt" dataPoint={companyData.debt} formatter={(value) => money(Number(value), input.profile.currency)} /><p className="mt-3 text-xs text-amber-700">{companyData.warnings.join(" ")}</p><p className="mt-2 text-xs text-slate-500">{companyData.notes.join(" ")}</p><button className="mt-3 rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={applyImportedCompanyData}>Apply imported data</button></div> : <p className="text-sm text-slate-500">No imported BizRaport financial preview yet.</p>}
+              </div>
             </CardContent>
           </Card>
           <Card>
@@ -804,25 +951,12 @@ export default function Home() {
               {professionalIndustryTemplate ? <><TemplateAssumptionTable template={professionalIndustryTemplate} /><button className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={() => applyTemplateToInput(professionalIndustryTemplate.name)}>Apply template assumptions</button></> : <p className="text-sm text-slate-500">Select an industry template to review suggested assumptions and sources.</p>}
             </CardContent>
           </Card>
-          <Card className="xl:col-span-2">
-            <CardHeader><CardTitle>Data Sources</CardTitle><CardDescription>Server-side source architecture for imports. BizRaport credentials remain on the server and are never exposed to the browser.</CardDescription></CardHeader>
-            <CardContent className="grid gap-6 lg:grid-cols-2">
-              <div className="space-y-4">
-                <div>
-                  <h3 className="text-sm font-bold uppercase tracking-wide text-slate-600">Company data</h3>
-                  <p className="mt-1 text-sm text-slate-500">Available source mapping: {companySources.map((source) => source.name).join(", ") || "No mapped source"}</p>
-                </div>
-                <button className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={() => fetchBizRaportData()}>Fetch BizRaport data</button>
-                {companyData ? <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><DataPointRow label="Company name" dataPoint={companyData.companyName} /><DataPointRow label="Latest imported revenue" dataPoint={latestImportedYear(companyData)?.revenue} formatter={(value) => money(Number(value), input.profile.currency)} /><DataPointRow label="Latest imported EBITDA" dataPoint={latestImportedYear(companyData)?.ebitda} formatter={(value) => money(Number(value), input.profile.currency)} /><DataPointRow label="Cash" dataPoint={companyData.cash} formatter={(value) => money(Number(value), input.profile.currency)} /><DataPointRow label="Debt" dataPoint={companyData.debt} formatter={(value) => money(Number(value), input.profile.currency)} /><p className="mt-3 text-xs text-amber-700">{companyData.warnings.join(" ")}</p><p className="mt-2 text-xs text-slate-500">{companyData.notes.join(" ")}</p><button className="mt-3 rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={applyImportedCompanyData}>Apply imported data</button></div> : <p className="text-sm text-slate-500">Company import has not been run. Fetching uses the server-side BizRaport route and requires configured credentials.</p>}
-              </div>
-              <div className="space-y-4">
-                <div>
-                  <h3 className="text-sm font-bold uppercase tracking-wide text-slate-600">Market data</h3>
-                  <p className="mt-1 text-sm text-slate-500">Configured placeholders: {marketSources.map((source) => source.name).join(", ")}</p>
-                </div>
-                <button className="rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={refreshMarketDataPlaceholder}>Refresh market data</button>
-                {marketData ? <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><DataPointRow label="Risk-free rate" dataPoint={marketData.riskFreeRate} formatter={(value) => pct(Number(value))} /><DataPointRow label="Equity risk premium" dataPoint={marketData.equityRiskPremium} formatter={(value) => pct(Number(value))} /><DataPointRow label="Beta" dataPoint={marketData.beta} formatter={(value) => Number(value).toFixed(2)} /><DataPointRow label="EV / EBITDA" dataPoint={marketData.evEbitdaMultiple} formatter={(value) => multiple(Number(value))} /><DataPointRow label="EV / Revenue" dataPoint={marketData.evRevenueMultiple} formatter={(value) => multiple(Number(value))} /><p className="mt-3 text-xs text-slate-500">{marketData.notes.join(" ")}</p></div> : <p className="text-sm text-slate-500">Market data refresh has not been run. Button currently creates manual placeholder snapshots only.</p>}
-              </div>
+          <Card>
+            <CardHeader><CardTitle>Market Data Placeholders</CardTitle><CardDescription>Manual market-data seeds for later integrations. Values are not live market data.</CardDescription></CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-slate-500">Configured placeholders: {marketSources.map((source) => source.name).join(", ")}</p>
+              <button className="rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={refreshMarketDataPlaceholder}>Refresh market data</button>
+              {marketData ? <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><DataPointRow label="Risk-free rate" dataPoint={marketData.riskFreeRate} formatter={(value) => pct(Number(value))} /><DataPointRow label="Equity risk premium" dataPoint={marketData.equityRiskPremium} formatter={(value) => pct(Number(value))} /><DataPointRow label="Beta" dataPoint={marketData.beta} formatter={(value) => Number(value).toFixed(2)} /><DataPointRow label="EV / EBITDA" dataPoint={marketData.evEbitdaMultiple} formatter={(value) => multiple(Number(value))} /><DataPointRow label="EV / Revenue" dataPoint={marketData.evRevenueMultiple} formatter={(value) => multiple(Number(value))} /><p className="mt-3 text-xs text-slate-500">{marketData.notes.join(" ")}</p></div> : <p className="text-sm text-slate-500">Market data refresh has not been run. Button currently creates manual placeholder snapshots only.</p>}
             </CardContent>
           </Card>
         </div>

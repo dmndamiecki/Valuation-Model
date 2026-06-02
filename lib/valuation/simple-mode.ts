@@ -5,8 +5,14 @@ export type SimpleModeInput = {
   country: string;
   currency: string;
   registrationNumber: string;
+  nip: string;
+  regon: string;
   website: string;
   pkdCode: string;
+  legalForm: string;
+  address: string;
+  shareCapital: string;
+  registrationStatus: string;
   industry: string;
   latestRevenue: number;
   latestEbitda: number;
@@ -64,7 +70,13 @@ export function simpleInputFromValuationInput(
     country: input.profile.country,
     currency: input.profile.currency,
     registrationNumber: input.profile.registrationNumber,
+    nip: input.profile.nip,
+    regon: input.profile.regon,
     pkdCode: input.profile.pkdCode,
+    legalForm: input.profile.legalForm,
+    address: input.profile.address,
+    shareCapital: input.profile.shareCapital,
+    registrationStatus: input.profile.registrationStatus,
     website: input.profile.website,
     industry: input.profile.industry,
     latestRevenue: latestHistorical.revenue,
@@ -97,7 +109,13 @@ export function buildValuationInputFromSimpleMode(
       country: simpleInput.country,
       currency: simpleInput.currency,
       registrationNumber: simpleInput.registrationNumber,
+      nip: simpleInput.nip,
+      regon: simpleInput.regon,
       pkdCode: simpleInput.pkdCode,
+      legalForm: simpleInput.legalForm,
+      address: simpleInput.address,
+      shareCapital: simpleInput.shareCapital,
+      registrationStatus: simpleInput.registrationStatus,
       website: simpleInput.website,
       industry: simpleInput.industry,
       valuationDate: simpleInput.valuationDate,

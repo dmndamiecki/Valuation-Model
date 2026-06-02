@@ -2,6 +2,16 @@ import type { DataSource } from "./types";
 
 export const dataSources: DataSource[] = [
   {
+    id: "public-krs",
+    name: "Public KRS API",
+    category: "company",
+    sourceUrl: "https://api-krs.ms.gov.pl",
+    fetchStatus: "idle",
+    description: "Free Polish registry profile source. Provides company profile data only, not financial statements.",
+    supportedIdentifiers: ["KRS"],
+    supportedFields: ["Company profile", "KRS", "NIP", "REGON", "PKD", "Legal form", "Address", "Share capital"],
+  },
+  {
     id: "bizraport",
     name: "BizRaport",
     category: "company",
@@ -52,13 +62,13 @@ export const dataSources: DataSource[] = [
 ];
 
 export const countryCompanySourceMap: Record<string, string[]> = {
-  Poland: ["bizraport"],
+  Poland: ["public-krs", "bizraport"],
   "United Kingdom": ["companies-house"],
   "United States": ["sec"],
 };
 
 export function getCompanyDataSources(country: string) {
-  const sourceIds = countryCompanySourceMap[country] ?? ["bizraport"];
+  const sourceIds = countryCompanySourceMap[country] ?? ["public-krs", "bizraport"];
   return dataSources.filter((source) => sourceIds.includes(source.id));
 }
 

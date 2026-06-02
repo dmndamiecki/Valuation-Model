@@ -34,6 +34,26 @@ export type ImportedFinancialYear = {
   netWorkingCapital?: DataPoint<number | null>;
 };
 
+
+export type CompanyProfileData = {
+  status: DataFetchStatus;
+  companyName?: DataPoint<string | null>;
+  krs?: DataPoint<string | null>;
+  nip?: DataPoint<string | null>;
+  regon?: DataPoint<string | null>;
+  pkdCode?: DataPoint<string | null>;
+  legalForm?: DataPoint<string | null>;
+  address?: DataPoint<string | null>;
+  shareCapital?: DataPoint<string | null>;
+  registrationStatus?: DataPoint<string | null>;
+  source: string;
+  sourceUrl: string;
+  fetchedAt: string;
+  sourceDate: string;
+  warnings: string[];
+  notes: string[];
+};
+
 export type CompanyFinancialData = {
   status: DataFetchStatus;
   companyName?: DataPoint<string | null>;
