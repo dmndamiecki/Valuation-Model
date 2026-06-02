@@ -18,6 +18,8 @@ import {
 } from "recharts";
 import { Badge } from "@/components/ui/badge";
 import { createDamodaranManualSeedSnapshot } from "@/lib/data-sources/damodaran";
+import type { DamodaranBetaSuggestion } from "@/lib/data-sources/damodaran-beta";
+import type { DamodaranErpSuggestion } from "@/lib/data-sources/damodaran-erp";
 import { createFredManualSeedSnapshot, type FredRiskFreeRateResult } from "@/lib/data-sources/fred";
 import { cleanBizRaportKrs, isKrs, isNip } from "@/lib/data-sources/identifiers";
 import { getCompanyDataSources, getMarketDataSources } from "@/lib/data-sources/mapping";
@@ -228,15 +230,20 @@ function TemplateAssumptionTable({ template }: { template: IndustryTemplate }) {
           </tr>
         </thead>
         <tbody>
-          {rows.map(([label, assumption, format]) => (
-            <tr key={label} className="border-b border-slate-100 align-top">
-              <td className="p-3 font-semibold text-slate-800">{label}</td>
-              <td className="p-3 text-right font-semibold text-slate-950">{assumptionValue(assumption, format)}</td>
-              <td className="p-3 text-slate-700">{assumption.source}{assumption.note ? <span className="block text-xs text-slate-500">{assumption.note}</span> : null}</td>
-              <td className="p-3 text-slate-600">{assumption.sourceDate}</td>
-              <td className="p-3"><Badge className={assumption.confidence === "low" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-blue-200 bg-blue-50 text-blue-800"}>{assumption.confidence}</Badge></td>
-            </tr>
-          ))}
+          {rows.map(([label, assumption, format]) => {
+            const isMarketTemplateSeed = ["Beta", "EV / EBITDA", "EV / Revenue"].includes(label);
+            const sourceLabel = isMarketTemplateSeed ? "Template seed" : assumption.source;
+            const sourceNote = isMarketTemplateSeed ? "Manual template seed; not Damodaran live data." : assumption.note;
+            return (
+              <tr key={label} className="border-b border-slate-100 align-top">
+                <td className="p-3 font-semibold text-slate-800">{label}</td>
+                <td className="p-3 text-right font-semibold text-slate-950">{assumptionValue(assumption, format)}</td>
+                <td className="p-3 text-slate-700">{sourceLabel}{sourceNote ? <span className="block text-xs text-slate-500">{sourceNote}</span> : null}</td>
+                <td className="p-3 text-slate-600">{assumption.sourceDate}</td>
+                <td className="p-3"><Badge className={assumption.confidence === "low" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-blue-200 bg-blue-50 text-blue-800"}>{assumption.confidence}</Badge></td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -439,6 +446,12 @@ export default function Home() {
   const [riskFreeRateSource, setRiskFreeRateSource] = useState<FredRiskFreeRateResult | null>(null);
   const [riskFreeRateStatus, setRiskFreeRateStatus] = useState("");
   const [riskFreeRateManuallyEdited, setRiskFreeRateManuallyEdited] = useState(false);
+  const [erpSource, setErpSource] = useState<DamodaranErpSuggestion | null>(null);
+  const [erpStatus, setErpStatus] = useState("");
+  const [erpManuallyEdited, setErpManuallyEdited] = useState(false);
+  const [betaSource, setBetaSource] = useState<DamodaranBetaSuggestion | null>(null);
+  const [betaStatus, setBetaStatus] = useState("");
+  const [betaManuallyEdited, setBetaManuallyEdited] = useState(false);
 
   const validation = useMemo(() => valuationInputSchema.safeParse(input), [input]);
   const model = useMemo(() => {
@@ -639,6 +652,106 @@ export default function Home() {
     }
   }
 
+  function applyErpSuggestion(suggestion: DamodaranErpSuggestion, force = false) {
+    setErpSource(suggestion);
+    setErpStatus(suggestion.warning ? `${suggestion.message} ${suggestion.warning}` : suggestion.message);
+    if (suggestion.value !== null && (force || !erpManuallyEdited)) {
+      setInput((current) => ({
+        ...current,
+        wacc: {
+          ...current.wacc,
+          equityRiskPremium: suggestion.value ?? current.wacc.equityRiskPremium,
+        },
+      }));
+    }
+  }
+
+  async function fetchErpFromDamodaranSeed(country = input.profile.country, forceApply = false) {
+    setErpStatus("Refreshing ERP from Damodaran manual seed...");
+    try {
+      const response = await fetch(`/api/market-data/equity-risk-premium?country=${encodeURIComponent(country)}&valuationDate=${encodeURIComponent(input.profile.valuationDate)}`);
+      const payload = await response.json() as DamodaranErpSuggestion;
+      if (!response.ok) {
+        throw new Error(payload.message ?? "Damodaran ERP seed fetch failed.");
+      }
+      applyErpSuggestion(payload, forceApply);
+      return payload;
+    } catch (error) {
+      const fallback: DamodaranErpSuggestion = {
+        status: "fallback",
+        message: error instanceof Error ? error.message : "Damodaran ERP seed fetch failed.",
+        value: null,
+        matureMarketErp: null,
+        countryRiskPremium: null,
+        totalErp: null,
+        country,
+        source: "Damodaran Country Risk Premiums",
+        sourceUrl: "https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/ctryprem.html",
+        dataCurrentUrl: "https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datacurrent.html",
+        sourceDate: "2026-01-05",
+        fetchedAt: new Date().toISOString(),
+        datasetAgeDays: 0,
+        refreshStatus: "manual_seed",
+        confidence: "medium",
+        isLiveData: false,
+        isUserOverridden: false,
+      };
+      setErpSource(fallback);
+      setErpStatus(fallback.message);
+      return fallback;
+    }
+  }
+
+  function applyBetaSuggestion(suggestion: DamodaranBetaSuggestion) {
+    setBetaSource(suggestion);
+    setBetaStatus(suggestion.warning ? `${suggestion.message} ${suggestion.warning}` : suggestion.message);
+    if (suggestion.value !== null && !betaManuallyEdited) {
+      setInput((current) => ({
+        ...current,
+        wacc: {
+          ...current.wacc,
+          beta: suggestion.value ?? current.wacc.beta,
+        },
+      }));
+    }
+  }
+
+  async function fetchBetaFromDamodaranSeed(industry = input.profile.industry) {
+    setBetaStatus("Refreshing beta from Damodaran manual seed...");
+    try {
+      const response = await fetch(`/api/market-data/beta?industry=${encodeURIComponent(industry)}&valuationDate=${encodeURIComponent(input.profile.valuationDate)}`);
+      const payload = await response.json() as DamodaranBetaSuggestion;
+      if (!response.ok) {
+        throw new Error(payload.message ?? "Damodaran beta seed fetch failed.");
+      }
+      applyBetaSuggestion(payload);
+      return payload;
+    } catch (error) {
+      const fallback: DamodaranBetaSuggestion = {
+        status: "fallback",
+        message: error instanceof Error ? error.message : "Damodaran beta seed fetch failed.",
+        value: null,
+        unleveredBeta: null,
+        cashAdjustedBeta: null,
+        appIndustry: industry,
+        damodaranIndustry: null,
+        source: "Damodaran Industry Betas",
+        sourceUrl: "https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/Betas.html",
+        dataCurrentUrl: "https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datacurrent.html",
+        sourceDate: "2026-01-09",
+        fetchedAt: new Date().toISOString(),
+        datasetAgeDays: 0,
+        refreshStatus: "manual_seed",
+        confidence: "medium",
+        isLiveData: false,
+        isUserOverridden: false,
+      };
+      setBetaSource(fallback);
+      setBetaStatus(fallback.message);
+      return fallback;
+    }
+  }
+
   async function fetchCombinedCompanyData() {
     const selectedKrs = cleanBizRaportKrs(wizardInput.registrationNumber);
     if (!isKrs(selectedKrs)) {
@@ -700,6 +813,8 @@ export default function Home() {
     setForecastAutoSeeded(Boolean(imported.seed));
     setImportedDataSummary(buildImportedDataSummary(combinedImportPreview.krsProfile, combinedImportPreview.companyData, imported.pkdSuggestion, Boolean(imported.seed)));
     void fetchRiskFreeRateFromFred(imported.input.profile.country);
+    void fetchErpFromDamodaranSeed(imported.input.profile.country);
+    void fetchBetaFromDamodaranSeed(imported.input.profile.industry);
     setWizardImportApplied(true);
     setCombinedImportStatus("Imported company data. Choose a valuation type to continue.");
     setWizardStep(2);
@@ -944,10 +1059,43 @@ export default function Home() {
     const fetchedAt = new Date().toISOString();
     const damodaran = createDamodaranManualSeedSnapshot(fetchedAt);
     const fred = createFredManualSeedSnapshot(fetchedAt);
+    const liveRiskFreeRate: DataPoint<number> | undefined = riskFreeRateSource?.value !== null && riskFreeRateSource?.value !== undefined ? {
+      value: riskFreeRateSource.value,
+      source: riskFreeRateSource.source,
+      sourceUrl: riskFreeRateSource.sourceUrl,
+      sourceDate: riskFreeRateSource.observationDate ?? riskFreeRateSource.fetchedAt,
+      fetchedAt: riskFreeRateSource.fetchedAt,
+      confidence: riskFreeRateSource.confidence,
+      isUserOverridden: false,
+    } : undefined;
+    const seedEquityRiskPremium: DataPoint<number> | undefined = erpSource?.value !== null && erpSource?.value !== undefined ? {
+      value: erpSource.value,
+      source: `${erpSource.source} manual seed`,
+      sourceUrl: erpSource.sourceUrl,
+      sourceDate: erpSource.sourceDate,
+      fetchedAt: erpSource.fetchedAt,
+      confidence: erpSource.confidence,
+      isUserOverridden: false,
+    } : undefined;
+    const seedBeta: DataPoint<number> | undefined = betaSource?.value !== null && betaSource?.value !== undefined ? {
+      value: betaSource.value,
+      source: `${betaSource.source} manual seed`,
+      sourceUrl: betaSource.sourceUrl,
+      sourceDate: betaSource.sourceDate,
+      fetchedAt: betaSource.fetchedAt,
+      confidence: betaSource.confidence,
+      isUserOverridden: false,
+    } : undefined;
     setMarketData({
       ...damodaran,
-      riskFreeRate: fred.riskFreeRate,
-      notes: [...fred.notes, ...damodaran.notes],
+      riskFreeRate: liveRiskFreeRate ?? fred.riskFreeRate,
+      equityRiskPremium: seedEquityRiskPremium ?? damodaran.equityRiskPremium,
+      beta: seedBeta ?? damodaran.beta,
+      notes: [
+        ...(liveRiskFreeRate ? ["Risk-free rate shown from FRED live import."] : fred.notes),
+        ...(seedEquityRiskPremium ? ["Equity risk premium shown from Damodaran 2026 manual seed dataset; this is not live data."] : damodaran.notes),
+        ...(seedBeta ? ["Beta shown from Damodaran 2026 industry beta manual seed dataset; this is not live data."] : []),
+      ],
     });
   }
 
@@ -1042,6 +1190,12 @@ export default function Home() {
     setRiskFreeRateSource(null);
     setRiskFreeRateStatus("");
     setRiskFreeRateManuallyEdited(false);
+    setErpSource(null);
+    setErpStatus("");
+    setErpManuallyEdited(false);
+    setBetaSource(null);
+    setBetaStatus("");
+    setBetaManuallyEdited(false);
     setWizardStep(1);
     setMode("simple");
     setWorkspaceStarted(false);
@@ -1180,6 +1334,36 @@ export default function Home() {
     { id: "scenarios-sensitivity", label: "8. Scenarios & Sensitivity", status: model.scenarioAnalysis.some((scenario) => scenario.warnings.length > 0) ? "warning" : "complete" },
     { id: "diagnostics", label: "9. Diagnostics", status: model.diagnostics.criticalCount > 0 ? "missing inputs" : model.diagnostics.warningCount > 0 ? "warning" : "complete" },
     { id: "export", label: "10. Export", status: validation.success ? "complete" : "warning" },
+  ];
+
+  const marketDataSourceRows = [
+    {
+      input: "Risk-free rate",
+      currentValue: pct(input.wacc.riskFreeRate),
+      source: riskFreeRateSource?.value !== null && riskFreeRateSource?.value !== undefined ? riskFreeRateSource.source : "Manual input",
+      date: riskFreeRateSource?.value !== null && riskFreeRateSource?.value !== undefined ? riskFreeRateSource.observationDate ?? riskFreeRateSource.fetchedAt : "Manual",
+      status: riskFreeRateSource?.value !== null && riskFreeRateSource?.value !== undefined ? riskFreeRateSource.status : "manual",
+      confidence: riskFreeRateSource?.value !== null && riskFreeRateSource?.value !== undefined ? riskFreeRateSource.confidence : "low",
+      action: <button className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-teal-600 hover:text-teal-800" onClick={() => fetchRiskFreeRateFromFred(input.profile.country, true)}>Refresh FRED</button>,
+    },
+    {
+      input: "Equity risk premium",
+      currentValue: pct(input.wacc.equityRiskPremium),
+      source: erpSource?.value !== null && erpSource?.value !== undefined ? `${erpSource.source} seed` : "Manual input",
+      date: erpSource?.value !== null && erpSource?.value !== undefined ? erpSource.sourceDate : "Manual",
+      status: erpSource?.value !== null && erpSource?.value !== undefined ? erpSource.refreshStatus : "manual",
+      confidence: erpSource?.value !== null && erpSource?.value !== undefined ? erpSource.confidence : "low",
+      action: <button className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-teal-600 hover:text-teal-800" onClick={() => fetchErpFromDamodaranSeed(input.profile.country)}>Refresh ERP</button>,
+    },
+    {
+      input: "Beta",
+      currentValue: input.wacc.beta.toFixed(2),
+      source: betaSource?.value !== null && betaSource?.value !== undefined ? `${betaSource.source} seed` : "Manual input",
+      date: betaSource?.value !== null && betaSource?.value !== undefined ? betaSource.sourceDate : "Manual",
+      status: betaSource?.value !== null && betaSource?.value !== undefined ? betaSource.refreshStatus : "manual",
+      confidence: betaSource?.value !== null && betaSource?.value !== undefined ? betaSource.confidence : "low",
+      action: <button className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-teal-600 hover:text-teal-800" onClick={() => fetchBetaFromDamodaranSeed(input.profile.industry)}>Refresh beta</button>,
+    },
   ];
 
   if (!workspaceStarted) {
@@ -1444,11 +1628,37 @@ export default function Home() {
             </CardContent>
           </Card>
           <Card>
-            <CardHeader><CardTitle>Market Data Placeholders</CardTitle><CardDescription>Manual market-data seeds for later integrations. Values are not live market data.</CardDescription></CardHeader>
-            <CardContent className="space-y-4">
-              <p className="text-sm text-slate-500">Configured placeholders: {marketSources.map((source) => source.name).join(", ")}</p>
-              <button className="rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={refreshMarketDataPlaceholder}>Refresh market data</button>
-              {marketData ? <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><DataPointRow label="Risk-free rate" dataPoint={marketData.riskFreeRate} formatter={(value) => pct(Number(value))} /><DataPointRow label="Equity risk premium" dataPoint={marketData.equityRiskPremium} formatter={(value) => pct(Number(value))} /><DataPointRow label="Beta" dataPoint={marketData.beta} formatter={(value) => Number(value).toFixed(2)} /><DataPointRow label="EV / EBITDA" dataPoint={marketData.evEbitdaMultiple} formatter={(value) => multiple(Number(value))} /><DataPointRow label="EV / Revenue" dataPoint={marketData.evRevenueMultiple} formatter={(value) => multiple(Number(value))} /><p className="mt-3 text-xs text-slate-500">{marketData.notes.join(" ")}</p></div> : <p className="text-sm text-slate-500">Market data refresh has not been run. Button currently creates manual placeholder snapshots only.</p>}
+            <CardHeader><CardTitle>Market Data Sources</CardTitle><CardDescription>Active WACC market inputs. Sourced values replace manual placeholders when available.</CardDescription></CardHeader>
+            <CardContent className="space-y-5">
+              <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+                <table className="w-full min-w-[760px] text-sm">
+                  <thead><tr className="border-b bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500"><th className="p-3">Input</th><th className="p-3 text-right">Current value</th><th className="p-3">Source</th><th className="p-3">Source date / observation date</th><th className="p-3">Status</th><th className="p-3">Confidence</th><th className="p-3">Refresh action</th></tr></thead>
+                  <tbody>
+                    {marketDataSourceRows.map((row) => (
+                      <tr key={row.input} className="border-b border-slate-100 align-top">
+                        <td className="p-3 font-semibold text-slate-800">{row.input}</td>
+                        <td className="p-3 text-right font-semibold text-slate-950">{row.currentValue}</td>
+                        <td className="p-3 text-slate-700">{row.source}</td>
+                        <td className="p-3 text-slate-600">{row.date}</td>
+                        <td className="p-3 text-slate-700">{row.status}</td>
+                        <td className="p-3"><Badge className={row.confidence === "low" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-blue-200 bg-blue-50 text-blue-800"}>{row.confidence}</Badge></td>
+                        <td className="p-3">{row.action}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm font-semibold text-slate-950">Market multiples — manual for now</p>
+                <p className="mt-1 text-xs text-slate-600">EV/EBITDA and EV/Revenue are still manual assumptions and are not refreshed from Damodaran yet.</p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <OutputRow label="EV / EBITDA" value={multiple(input.marketMultiples.evEbitdaMultiple)} />
+                  <OutputRow label="EV / Revenue" value={multiple(input.marketMultiples.evRevenueMultiple)} />
+                </div>
+              </div>
+              <button className="rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={refreshMarketDataPlaceholder}>Sync displayed source summary</button>
+              {marketData?.notes.length ? <p className="text-xs text-slate-500">{marketData.notes.join(" ")}</p> : null}
+              <p className="text-xs text-slate-500">Configured market source adapters: {marketSources.map((source) => source.name).join(", ")}</p>
             </CardContent>
           </Card>
         </div>
@@ -1559,13 +1769,60 @@ export default function Home() {
                     <span><strong>Observation date:</strong> {riskFreeRateSource.observationDate ?? "Unavailable"}</span>
                     <span><strong>Fetched at:</strong> {riskFreeRateSource.fetchedAt}</span>
                     <span><strong>Confidence:</strong> {riskFreeRateSource.confidence}</span>
-                    <span><strong>Status:</strong> {riskFreeRateSource.status}</span>
+                    <span><strong>Refresh status:</strong> {riskFreeRateSource.status}</span>
                   </div>
                 ) : <p className="mt-3 text-xs text-slate-500">No live FRED risk-free rate has been fetched yet.</p>}
                 {riskFreeRateStatus ? <p className="mt-3 text-xs text-slate-500">{riskFreeRateStatus}{riskFreeRateManuallyEdited && riskFreeRateSource?.value !== null ? " Manual risk-free rate edits are preserved unless you refresh explicitly." : ""}</p> : null}
               </div>
-              <NumberField label="Equity risk premium" value={input.wacc.equityRiskPremium} percent onChange={(v) => update(["wacc", "equityRiskPremium"], v)} />
-              <NumberField label="Beta" value={input.wacc.beta} onChange={(v) => update(["wacc", "beta"], v)} />
+              <NumberField label="Equity risk premium" value={input.wacc.equityRiskPremium} percent onChange={(v) => { setErpManuallyEdited(true); update(["wacc", "equityRiskPremium"], v); }} />
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-semibold text-slate-950">Equity risk premium source</p>
+                    <p className="mt-1 text-slate-600">Current ERP: {pct(input.wacc.equityRiskPremium)}</p>
+                  </div>
+                  <button className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={() => fetchErpFromDamodaranSeed(input.profile.country)}>Refresh ERP from Damodaran seed</button>
+                </div>
+                {erpSource ? (
+                  <div className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
+                    <span><strong>Mature market ERP:</strong> {erpSource.matureMarketErp !== null ? pct(erpSource.matureMarketErp) : "Unavailable"}</span>
+                    <span><strong>Country risk premium:</strong> {erpSource.countryRiskPremium !== null ? pct(erpSource.countryRiskPremium) : "Unavailable"}</span>
+                    <span><strong>Total ERP:</strong> {erpSource.totalErp !== null ? pct(erpSource.totalErp) : "Unavailable"}</span>
+                    <span><strong>Source:</strong> {erpSource.source}</span>
+                    <span><strong>Source date:</strong> {erpSource.sourceDate}</span>
+                    <span><strong>Dataset age:</strong> {erpSource.datasetAgeDays} days</span>
+                    <span><strong>Refresh status:</strong> {erpSource.refreshStatus}</span>
+                    <span><strong>Confidence:</strong> {erpSource.confidence}</span>
+                  </div>
+                ) : <p className="mt-3 text-xs text-slate-500">No Damodaran ERP seed has been loaded yet.</p>}
+                {erpSource?.warning ? <p className="mt-3 text-xs font-semibold text-amber-700">{erpSource.warning}</p> : null}
+                {erpStatus ? <p className="mt-3 text-xs text-slate-500">{erpStatus}{erpManuallyEdited && erpSource?.value !== null ? " Manual ERP edits are preserved during refresh and imports." : ""}</p> : null}
+              </div>
+              <NumberField label="Beta" value={input.wacc.beta} onChange={(v) => { setBetaManuallyEdited(true); update(["wacc", "beta"], v); }} />
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-semibold text-slate-950">Beta source</p>
+                    <p className="mt-1 text-slate-600">Current beta: {input.wacc.beta.toFixed(2)}</p>
+                  </div>
+                  <button className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={() => fetchBetaFromDamodaranSeed(input.profile.industry)}>Refresh beta from Damodaran seed</button>
+                </div>
+                {betaSource ? (
+                  <div className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
+                    <span><strong>App industry:</strong> {betaSource.appIndustry || "Unavailable"}</span>
+                    <span><strong>Damodaran industry:</strong> {betaSource.damodaranIndustry ?? "Unavailable"}</span>
+                    <span><strong>Unlevered beta:</strong> {betaSource.unleveredBeta !== null ? betaSource.unleveredBeta.toFixed(2) : "Unavailable"}</span>
+                    <span><strong>Cash-adjusted beta:</strong> {betaSource.cashAdjustedBeta !== null ? betaSource.cashAdjustedBeta.toFixed(2) : "Unavailable"}</span>
+                    <span><strong>Source:</strong> {betaSource.source}</span>
+                    <span><strong>Source date:</strong> {betaSource.sourceDate}</span>
+                    <span><strong>Dataset age:</strong> {betaSource.datasetAgeDays} days</span>
+                    <span><strong>Refresh status:</strong> {betaSource.refreshStatus}</span>
+                    <span><strong>Confidence:</strong> {betaSource.confidence}</span>
+                  </div>
+                ) : <p className="mt-3 text-xs text-slate-500">No Damodaran beta seed has been loaded yet.</p>}
+                {betaSource?.warning ? <p className="mt-3 text-xs font-semibold text-amber-700">{betaSource.warning}</p> : null}
+                {betaStatus ? <p className="mt-3 text-xs text-slate-500">{betaStatus}{betaManuallyEdited && betaSource?.value !== null ? " Manual beta edits are preserved during refresh and imports." : ""}</p> : null}
+              </div>
               <NumberField label="Size premium" value={input.wacc.sizePremium} percent onChange={(v) => update(["wacc", "sizePremium"], v)} />
               <NumberField label="Company-specific premium" value={input.wacc.companySpecificRiskPremium} percent onChange={(v) => update(["wacc", "companySpecificRiskPremium"], v)} />
               <NumberField label="Pre-tax cost of debt" value={input.wacc.preTaxCostOfDebt} percent onChange={(v) => update(["wacc", "preTaxCostOfDebt"], v)} />

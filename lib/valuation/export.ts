@@ -101,7 +101,7 @@ export function buildValuationConclusion(
     `Enterprise value implies ${safeMultiple(executiveSummary.evToNormalizedEbitda)} normalized EBITDA.`,
     ...(marketValuation ? [`Weighted market enterprise value is ${safeMoney(marketValuation.weightedMarketEnterpriseValue, input.profile.currency)}, implying a DCF / market EV difference of ${safePercent(marketValuation.comparison.enterpriseValueDifferencePct)}.`] : []),
   ];
-  const methodologyNote = "Valuation is based on an unlevered FCFF DCF, WACC discounting, selected terminal value method, EV-to-equity bridge, and sequential private-company equity discounts. No external APIs, databases, or server-side export services are used.";
+  const methodologyNote = "Valuation is based on an unlevered FCFF DCF, WACC discounting, selected terminal value method, EV-to-equity bridge, and sequential private-company equity discounts. Valuation uses server-side public/company/market data integrations where configured; all assumptions remain editable and export is local.";
   const summaryText = [
     `${input.profile.companyName} valuation conclusion`,
     `Base adjusted equity value: ${safeMoney(base.adjustedEquityValue, input.profile.currency)}.`,

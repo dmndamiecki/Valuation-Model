@@ -77,3 +77,7 @@ Added a pure market multiples module using manually entered EV/EBITDA and EV/Rev
 ### 14. Multi-section workflow UI
 
 Refactored the single-page interface into a professional ten-section workflow with sticky in-page navigation: Company, Historical Financials, Normalization, Forecast, WACC, DCF, Market Approach, Scenarios & Sensitivity, Diagnostics, and Export. Status indicators are derived from validation state, diagnostics, scenario warnings, and existing valuation warnings; valuation calculations remain unchanged and continue to live in pure valuation modules.
+
+### 15. Market data source treatment
+
+Risk-free rates can be imported server-side from FRED where a country-to-series mapping exists; the FRED API key remains on the server and imported values are source-tagged in the WACC section. Equity risk premium currently uses a manual Damodaran Country Risk Premiums seed dataset dated January 5, 2026. Beta currently uses a manual Damodaran Industry Betas seed dataset dated January 9, 2026, mapped from the app industry template to the closest Damodaran industry. The Damodaran seeds are explicitly not live data, carry medium confidence, and should be refreshed periodically; the app warns when a seed dataset is more than 180 days old relative to the valuation date or current date. Market data imports update WACC assumptions only when users have not manually overridden those inputs, and valuation formulas remain unchanged.
