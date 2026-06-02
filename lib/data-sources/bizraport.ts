@@ -1,4 +1,7 @@
+import { cleanBizRaportKrs, digitsOnly, isKrs, isNip } from "./identifiers";
 import type { CompanyFinancialData, DataPoint, ImportedFinancialYear } from "./types";
+
+export { isKrs, isNip } from "./identifiers";
 
 const BIZRAPORT_BASE_URL = "https://api.bizraport.pl";
 const SOURCE = "BizRaport";
@@ -76,20 +79,28 @@ export async function searchBizRaportCompanies(query: string, limit = 10) {
     throw new Error("Search query is required.");
   }
   const url = buildUrl("/api/szukaj", { q: query.trim(), limit });
-  return fetchJson<BizRaportSearchResponse>(url);
+  const response = await fetchJson<BizRaportSearchResponse>(url);
+
+  return {
+    ...response,
+    data: response.data?.map((result) => ({ ...result, krs: cleanBizRaportKrs(result.krs) })) ?? [],
+  };
 }
 
 export async function fetchBizRaportCompanyData({ krs, nip }: BizRaportCompanyRequest) {
-  if (!krs && !nip) {
+  const normalizedKrs = krs ? cleanBizRaportKrs(krs) : undefined;
+  const normalizedNip = nip ? String(nip).trim() : undefined;
+
+  if (!normalizedKrs && !normalizedNip) {
     throw new Error("Either KRS or NIP is required.");
   }
-  if (krs && !/^\d{10}$/.test(krs)) {
+  if (normalizedKrs && !isKrs(normalizedKrs)) {
     throw new Error("Invalid KRS. Expected a 10-digit KRS number.");
   }
-  if (nip && !/^\d{10}$/.test(nip)) {
-    throw new Error("Invalid NIP. Expected a 10-digit NIP number.");
+  if (normalizedNip && !isNip(normalizedNip)) {
+    throw new Error("Invalid NIP. Expected a 10-digit NIP number with a valid checksum.");
   }
-  const url = buildUrl("/api/dane", { krs, nip });
+  const url = buildUrl("/api/dane", { krs: normalizedKrs, nip: normalizedNip });
   return fetchJson<BizRaportCompanyResponse>(url);
 }
 
@@ -180,9 +191,9 @@ export function mapBizRaportResponseToCompanyFinancialData(response: BizRaportCo
 
   return {
     status: "ready",
-    registrationNumber: String(response.krs ?? response.nip ?? ""),
-    krs: dataPoint(response.krs ? String(response.krs) : null, sourceDate, fetchedAt),
-    nip: dataPoint(response.nip ? String(response.nip) : null, sourceDate, fetchedAt),
+    registrationNumber: response.krs ? cleanBizRaportKrs(response.krs) : String(response.nip ?? ""),
+    krs: dataPoint(response.krs ? cleanBizRaportKrs(response.krs) : null, sourceDate, fetchedAt),
+    nip: dataPoint(response.nip ? digitsOnly(response.nip) : null, sourceDate, fetchedAt),
     regon: dataPoint(regon ? String(regon) : null, sourceDate, fetchedAt),
     pkdCode: dataPoint(response.kod_pkd ?? null, sourceDate, fetchedAt),
     companyName: dataPoint(name ? String(name) : null, sourceDate, fetchedAt),

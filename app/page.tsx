@@ -19,6 +19,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { createDamodaranManualSeedSnapshot } from "@/lib/data-sources/damodaran";
 import { createFredManualSeedSnapshot } from "@/lib/data-sources/fred";
+import { cleanBizRaportKrs, isKrs, isNip } from "@/lib/data-sources/identifiers";
 import { getCompanyDataSources, getMarketDataSources } from "@/lib/data-sources/mapping";
 import type { CompanyFinancialData, DataPoint, ImportedFinancialYear, MarketDataSnapshot } from "@/lib/data-sources/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -306,7 +307,7 @@ export default function Home() {
       if (!response.ok) {
         throw new Error(payload.error ?? "BizRaport search failed.");
       }
-      const results = (payload.data ?? []) as BizRaportSearchItem[];
+      const results = ((payload.data ?? []) as BizRaportSearchItem[]).map((result) => ({ ...result, krs: cleanBizRaportKrs(result.krs) }));
       setBizRaportSearchResults(results);
       setBizRaportStatus(results.length > 0 ? "Select a KRS result to continue." : "No BizRaport results found.");
     } catch (error) {
@@ -322,8 +323,13 @@ export default function Home() {
     }
     setBizRaportStatus("Fetching BizRaport company data...");
     try {
-      const isNip = krsOrNip.replace(/\D/g, "").length === 10;
-      const query = isNip ? `nip=${encodeURIComponent(krsOrNip)}` : `krs=${encodeURIComponent(krsOrNip)}`;
+      const selectedIdentifier = cleanBizRaportKrs(krsOrNip);
+      const selectedFromBizRaportSearch = selectedBizRaportKrs === selectedIdentifier;
+      const query = isKrs(selectedIdentifier) || selectedFromBizRaportSearch
+        ? `krs=${encodeURIComponent(selectedIdentifier)}`
+        : isNip(selectedIdentifier)
+          ? `nip=${encodeURIComponent(selectedIdentifier)}`
+          : `krs=${encodeURIComponent(selectedIdentifier)}`;
       const response = await fetch(`/api/company-data/bizraport/fetch?${query}`);
       const payload = await response.json();
       if (!response.ok) {
@@ -338,9 +344,10 @@ export default function Home() {
   }
 
   function selectBizRaportKrs(krs: string) {
-    setSelectedBizRaportKrs(krs);
-    setWizardInput((current) => ({ ...current, registrationNumber: krs }));
-    setBizRaportStatus(`Selected KRS ${krs}.`);
+    const selectedKrs = cleanBizRaportKrs(krs);
+    setSelectedBizRaportKrs(selectedKrs);
+    setWizardInput((current) => ({ ...current, registrationNumber: selectedKrs }));
+    setBizRaportStatus(`Selected KRS ${selectedKrs}.`);
   }
 
   function latestImportedYear(data: CompanyFinancialData) {
