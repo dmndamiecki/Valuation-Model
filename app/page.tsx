@@ -18,7 +18,7 @@ import {
 } from "recharts";
 import { Badge } from "@/components/ui/badge";
 import { createDamodaranManualSeedSnapshot } from "@/lib/data-sources/damodaran";
-import { createFredManualSeedSnapshot } from "@/lib/data-sources/fred";
+import { createFredManualSeedSnapshot, type FredRiskFreeRateResult } from "@/lib/data-sources/fred";
 import { cleanBizRaportKrs, isKrs, isNip } from "@/lib/data-sources/identifiers";
 import { getCompanyDataSources, getMarketDataSources } from "@/lib/data-sources/mapping";
 import type { CompanyFinancialData, CompanyProfileData, DataPoint, ImportedFinancialYear, MarketDataSnapshot } from "@/lib/data-sources/types";
@@ -436,6 +436,9 @@ export default function Home() {
   const [wizardImportApplied, setWizardImportApplied] = useState(false);
   const [importedDataSummary, setImportedDataSummary] = useState<ImportedDataSummary | null>(null);
   const [showAdvancedImport, setShowAdvancedImport] = useState(false);
+  const [riskFreeRateSource, setRiskFreeRateSource] = useState<FredRiskFreeRateResult | null>(null);
+  const [riskFreeRateStatus, setRiskFreeRateStatus] = useState("");
+  const [riskFreeRateManuallyEdited, setRiskFreeRateManuallyEdited] = useState(false);
 
   const validation = useMemo(() => valuationInputSchema.safeParse(input), [input]);
   const model = useMemo(() => {
@@ -592,6 +595,50 @@ export default function Home() {
     return payload;
   }
 
+  function applyRiskFreeRateResult(result: FredRiskFreeRateResult, force = false) {
+    setRiskFreeRateSource(result);
+    setRiskFreeRateStatus(result.message);
+    if (result.value !== null && (force || !riskFreeRateManuallyEdited)) {
+      setInput((current) => ({
+        ...current,
+        wacc: {
+          ...current.wacc,
+          riskFreeRate: result.value ?? current.wacc.riskFreeRate,
+        },
+      }));
+    }
+  }
+
+  async function fetchRiskFreeRateFromFred(country = input.profile.country, forceApply = false) {
+    setRiskFreeRateStatus("Refreshing risk-free rate from FRED...");
+    try {
+      const response = await fetch(`/api/market-data/risk-free-rate?country=${encodeURIComponent(country)}`);
+      const payload = await response.json() as FredRiskFreeRateResult;
+      if (!response.ok) {
+        throw new Error(payload.message ?? "FRED risk-free rate fetch failed.");
+      }
+      applyRiskFreeRateResult(payload, forceApply);
+      return payload;
+    } catch (error) {
+      const fallback: FredRiskFreeRateResult = {
+        status: "error",
+        message: error instanceof Error ? error.message : "FRED risk-free rate fetch failed.",
+        country,
+        value: null,
+        source: "FRED",
+        sourceUrl: "https://api.stlouisfed.org/fred/series/observations",
+        seriesId: null,
+        observationDate: null,
+        fetchedAt: new Date().toISOString(),
+        confidence: "low",
+        isUserOverridden: false,
+      };
+      setRiskFreeRateSource(fallback);
+      setRiskFreeRateStatus(fallback.message);
+      return fallback;
+    }
+  }
+
   async function fetchCombinedCompanyData() {
     const selectedKrs = cleanBizRaportKrs(wizardInput.registrationNumber);
     if (!isKrs(selectedKrs)) {
@@ -652,6 +699,7 @@ export default function Home() {
     setForecastSeedNotes(imported.seed?.notes ?? []);
     setForecastAutoSeeded(Boolean(imported.seed));
     setImportedDataSummary(buildImportedDataSummary(combinedImportPreview.krsProfile, combinedImportPreview.companyData, imported.pkdSuggestion, Boolean(imported.seed)));
+    void fetchRiskFreeRateFromFred(imported.input.profile.country);
     setWizardImportApplied(true);
     setCombinedImportStatus("Imported company data. Choose a valuation type to continue.");
     setWizardStep(2);
@@ -991,6 +1039,9 @@ export default function Home() {
     setWizardImportApplied(false);
     setImportedDataSummary(null);
     setShowAdvancedImport(false);
+    setRiskFreeRateSource(null);
+    setRiskFreeRateStatus("");
+    setRiskFreeRateManuallyEdited(false);
     setWizardStep(1);
     setMode("simple");
     setWorkspaceStarted(false);
@@ -1492,7 +1543,27 @@ export default function Home() {
           <Card>
             <CardHeader><CardTitle>WACC Assumptions</CardTitle><CardDescription>Cost of equity = Rf + beta × ERP + size premium + CSRP.</CardDescription></CardHeader>
             <CardContent className="grid gap-3">
-              <NumberField label="Risk-free rate" value={input.wacc.riskFreeRate} percent onChange={(v) => update(["wacc", "riskFreeRate"], v)} />
+              <NumberField label="Risk-free rate" value={input.wacc.riskFreeRate} percent onChange={(v) => { setRiskFreeRateManuallyEdited(true); update(["wacc", "riskFreeRate"], v); }} />
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-semibold text-slate-950">Risk-free rate source</p>
+                    <p className="mt-1 text-slate-600">Current value: {pct(input.wacc.riskFreeRate)}</p>
+                  </div>
+                  <button className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={() => fetchRiskFreeRateFromFred(input.profile.country, true)}>Refresh risk-free rate from FRED</button>
+                </div>
+                {riskFreeRateSource ? (
+                  <div className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
+                    <span><strong>Source:</strong> {riskFreeRateSource.source}</span>
+                    <span><strong>Series ID:</strong> {riskFreeRateSource.seriesId ?? "Unavailable"}</span>
+                    <span><strong>Observation date:</strong> {riskFreeRateSource.observationDate ?? "Unavailable"}</span>
+                    <span><strong>Fetched at:</strong> {riskFreeRateSource.fetchedAt}</span>
+                    <span><strong>Confidence:</strong> {riskFreeRateSource.confidence}</span>
+                    <span><strong>Status:</strong> {riskFreeRateSource.status}</span>
+                  </div>
+                ) : <p className="mt-3 text-xs text-slate-500">No live FRED risk-free rate has been fetched yet.</p>}
+                {riskFreeRateStatus ? <p className="mt-3 text-xs text-slate-500">{riskFreeRateStatus}{riskFreeRateManuallyEdited && riskFreeRateSource?.value !== null ? " Manual risk-free rate edits are preserved unless you refresh explicitly." : ""}</p> : null}
+              </div>
               <NumberField label="Equity risk premium" value={input.wacc.equityRiskPremium} percent onChange={(v) => update(["wacc", "equityRiskPremium"], v)} />
               <NumberField label="Beta" value={input.wacc.beta} onChange={(v) => update(["wacc", "beta"], v)} />
               <NumberField label="Size premium" value={input.wacc.sizePremium} percent onChange={(v) => update(["wacc", "sizePremium"], v)} />
