@@ -21,6 +21,14 @@ export type ImportedFinancialYear = {
   roe?: DataPoint<number | null>;
   roa?: DataPoint<number | null>;
   margin?: DataPoint<number | null>;
+  ebitdaMargin?: DataPoint<number | null>;
+  netMargin?: DataPoint<number | null>;
+  assets?: DataPoint<number | null>;
+  equity?: DataPoint<number | null>;
+  liabilities?: DataPoint<number | null>;
+  cash?: DataPoint<number | null>;
+  receivables?: DataPoint<number | null>;
+  inventory?: DataPoint<number | null>;
   depreciation?: DataPoint<number | null>;
   capex?: DataPoint<number | null>;
   netWorkingCapital?: DataPoint<number | null>;

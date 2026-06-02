@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { fetchBizRaportCompanyData, mapBizRaportResponseToCompanyFinancialData } from "@/lib/data-sources/bizraport";
+import {
+  buildBizRaportDebugSnapshot,
+  fetchBizRaportCompanyData,
+  isBizRaportDebugEnabled,
+  mapBizRaportResponseToCompanyFinancialData,
+} from "@/lib/data-sources/bizraport";
 
 const sourceMetadata = {
   source: "BizRaport",
@@ -15,9 +20,12 @@ export async function GET(request: Request) {
   try {
     const response = await fetchBizRaportCompanyData({ krs, nip });
     const companyData = mapBizRaportResponseToCompanyFinancialData(response, fetchedAt);
+    const debug = isBizRaportDebugEnabled() ? buildBizRaportDebugSnapshot(response, companyData) : undefined;
+
     return NextResponse.json({
       status: "ready",
       data: companyData,
+      debug,
       sourceMetadata: { ...sourceMetadata, sourceDate: companyData.sourceDate, fetchedAt },
     });
   } catch (error) {
