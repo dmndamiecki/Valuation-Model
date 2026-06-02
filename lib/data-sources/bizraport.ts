@@ -36,6 +36,7 @@ type BizRaportCompanyPayload = {
   nip?: string | number;
   regon?: string | number;
   kod_pkd?: string;
+  opis_pkd?: string;
   pkd?: string;
   kodPkd?: string;
   informacje_o_firmie?: BizRaportInfoField[];
@@ -45,7 +46,7 @@ type BizRaportCompanyPayload = {
 };
 
 export type BizRaportCompanyResponse = BizRaportCompanyPayload & {
-  data?: BizRaportCompanyPayload;
+  data?: BizRaportCompanyPayload | BizRaportCompanyPayload[];
 };
 
 export type BizRaportDebugSnapshot = {
@@ -94,7 +95,15 @@ function responseKeys(body: unknown) {
 }
 
 function unwrapBizRaportResponse(response: BizRaportCompanyResponse): BizRaportCompanyPayload {
-  return response.data && typeof response.data === "object" ? response.data : response;
+  if (Array.isArray(response.data)) {
+    return response.data[0] ?? response;
+  }
+
+  if (response.data && typeof response.data === "object") {
+    return response.data;
+  }
+
+  return response;
 }
 
 function summarizeBizRaportResponse(response: BizRaportCompanyResponse) {
@@ -207,40 +216,62 @@ function companyInfo(response: BizRaportCompanyPayload, keys: string[]) {
 
 function assignFinancialMetric(year: ImportedFinancialYear, key: string, amount: number | null, sourceDate: string, fetchedAt: string) {
   const normalized = normalizeBizRaportKey(key);
-  const highConfidenceKeys = ["przychody", "przychody_netto", "ebitda", "ebit", "zysk_netto"];
-  const point = dataPoint(amount, sourceDate, fetchedAt, highConfidenceKeys.includes(normalized) ? "high" : "medium");
+  const normalizedAmount = normalized === "amortyzacja" || normalized === "wynagrodzenia" ? (amount === null ? null : Math.abs(amount)) : amount;
+  const highConfidenceKeys = ["przychody", "ebitda", "ebit", "zysk_netto", "zysk_operacyjny", "amortyzacja"];
+  const point = dataPoint(normalizedAmount, sourceDate, fetchedAt, highConfidenceKeys.includes(normalized) ? "high" : "medium");
 
-  if (normalized === "przychody" || normalized === "przychody_netto") {
+  if (normalized === "przychody") {
     year.revenue = point;
   } else if (normalized === "ebitda") {
     year.ebitda = point;
-  } else if (normalized === "ebit") {
+  } else if (normalized === "ebit" || normalized === "zysk_operacyjny") {
     year.ebit = point;
   } else if (normalized === "zysk_netto") {
     year.netIncome = point;
+  } else if (normalized === "amortyzacja") {
+    year.depreciation = point;
+  } else if (normalized === "aktywa_obrotowe") {
+    year.currentAssets = point;
+  } else if (normalized === "aktywa_trwale") {
+    year.fixedAssets = point;
+  } else if (normalized === "suma_bilansowa") {
+    year.assets = point;
+  } else if (normalized === "kapital_wlasny") {
+    year.equity = point;
+  } else if (normalized === "zobowiazania_i_rezerwy") {
+    year.liabilities = point;
+  } else if (normalized === "wskaznik_zadluzenia") {
+    year.debtRatio = point;
+  } else if (normalized === "marza_netto") {
+    year.netMargin = point;
+  } else if (normalized === "marza_operacyjna") {
+    year.operatingMargin = point;
   } else if (normalized === "roe") {
     year.roe = point;
   } else if (normalized === "roa") {
     year.roa = point;
-  } else if (normalized === "marza_ebitda") {
-    year.ebitdaMargin = point;
-  } else if (normalized === "marza_netto") {
-    year.netMargin = point;
-  } else if (normalized === "aktywa" || normalized === "aktywa_razem") {
-    year.assets = point;
-  } else if (normalized === "kapital_wlasny") {
-    year.equity = point;
-  } else if (normalized === "zobowiazania") {
-    year.liabilities = point;
-  } else if (normalized === "srodki_pieniezne") {
-    year.cash = point;
-  } else if (normalized === "naleznosci") {
-    year.receivables = point;
-  } else if (normalized === "zapasy") {
-    year.inventory = point;
+  } else if (normalized === "zatrudnienie") {
+    year.employees = point;
+  } else if (normalized === "wynagrodzenia") {
+    year.salaries = point;
+  } else if (normalized === "podatek_dochodowy") {
+    year.incomeTax = point;
+  } else if (normalized === "wartosc_firmy_minimalna") {
+    year.bizRaportMinCompanyValue = point;
+  } else if (normalized === "wartosc_firmy_srednia") {
+    year.bizRaportAvgCompanyValue = point;
+  } else if (normalized === "wartosc_firmy_maksymalna") {
+    year.bizRaportMaxCompanyValue = point;
   }
 }
 
+function deriveEbitda(year: ImportedFinancialYear, sourceDate: string, fetchedAt: string) {
+  if (year.ebitda || typeof year.ebit?.value !== "number" || typeof year.depreciation?.value !== "number") {
+    return;
+  }
+
+  year.ebitda = dataPoint(year.ebit.value + year.depreciation.value, sourceDate, fetchedAt, "medium");
+}
 export function buildBizRaportDebugSnapshot(response: BizRaportCompanyResponse, mappedResult: CompanyFinancialData): BizRaportDebugSnapshot {
   const payload = unwrapBizRaportResponse(response);
   const financialRows = payload.dane_finansowe ?? [];
@@ -284,7 +315,9 @@ export function mapBizRaportResponseToCompanyFinancialData(response: BizRaportCo
     yearsByYear.set(yearNumber, existing);
   });
 
-  const years = Array.from(yearsByYear.values()).sort((a, b) => a.year - b.year);
+  yearsByYear.forEach((year) => deriveEbitda(year, String(year.year), fetchedAt));
+
+  const years = Array.from(yearsByYear.values()).sort((a, b) => b.year - a.year);
   const hasMappedRevenue = years.some((year) => Boolean(year.revenue));
   const hasMappedEbitda = years.some((year) => Boolean(year.ebitda));
 
@@ -298,10 +331,13 @@ export function mapBizRaportResponseToCompanyFinancialData(response: BizRaportCo
     if (!year.ebitda) warnings.push(`EBITDA unavailable for ${year.year}.`);
   });
 
-  const name = companyInfo(payload, ["nazwa", "nazwa_firmy", "pelna_nazwa", "pełna_nazwa"]);
+  const name = companyInfo(payload, ["nazwa"]);
+  const website = companyInfo(payload, ["adres_strony_internetowej"]);
+  const legalForm = companyInfo(payload, ["forma_prawna"]);
   const regon = payload.regon ?? companyInfo(payload, ["regon"]);
   const pkdCode = payload.kod_pkd ?? payload.pkd ?? payload.kodPkd ?? null;
-  const latestImportedYear = [...years].sort((a, b) => b.year - a.year)[0];
+  const pkdDescription = payload.opis_pkd ?? null;
+  const latestImportedYear = years.find((year) => typeof year.cash?.value === "number");
 
   return {
     status: "ready",
@@ -310,6 +346,9 @@ export function mapBizRaportResponseToCompanyFinancialData(response: BizRaportCo
     nip: dataPoint(payload.nip ? digitsOnly(payload.nip) : null, sourceDate, fetchedAt),
     regon: dataPoint(regon ? String(regon) : null, sourceDate, fetchedAt),
     pkdCode: dataPoint(pkdCode, sourceDate, fetchedAt),
+    pkdDescription: dataPoint(pkdDescription, sourceDate, fetchedAt),
+    website: dataPoint(website ? String(website) : null, sourceDate, fetchedAt),
+    legalForm: dataPoint(legalForm ? String(legalForm) : null, sourceDate, fetchedAt),
     companyName: dataPoint(name ? String(name) : null, sourceDate, fetchedAt),
     source: SOURCE,
     sourceUrl: BIZRAPORT_BASE_URL,

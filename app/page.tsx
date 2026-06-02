@@ -225,6 +225,32 @@ function TemplateAssumptionTable({ template }: { template: IndustryTemplate }) {
   );
 }
 
+function BizRaportFinancialPreview({ data, currency, onApply }: { data: CompanyFinancialData; currency: string; onApply: () => void }) {
+  const latest = data.years[0];
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <DataPointRow label="Company name" dataPoint={data.companyName} />
+      <DataPointRow label="Website" dataPoint={data.website} />
+      <DataPointRow label="PKD code" dataPoint={data.pkdCode} />
+      <DataPointRow label="PKD description" dataPoint={data.pkdDescription} />
+      <DataPointRow label="Legal form" dataPoint={data.legalForm} />
+      {latest ? <DataPointRow label="Latest year" dataPoint={{ value: latest.year, source: data.source, sourceUrl: data.sourceUrl, sourceDate: data.sourceDate, fetchedAt: data.fetchedAt, confidence: "high", isUserOverridden: false }} formatter={(value) => String(value)} /> : null}
+      <DataPointRow label="Revenue" dataPoint={latest?.revenue} formatter={(value) => money(Number(value), currency)} />
+      <DataPointRow label="EBITDA" dataPoint={latest?.ebitda} formatter={(value) => money(Number(value), currency)} />
+      <DataPointRow label="EBIT" dataPoint={latest?.ebit} formatter={(value) => money(Number(value), currency)} />
+      <DataPointRow label="Net income" dataPoint={latest?.netIncome} formatter={(value) => money(Number(value), currency)} />
+      <DataPointRow label="Assets" dataPoint={latest?.assets} formatter={(value) => money(Number(value), currency)} />
+      <DataPointRow label="Equity" dataPoint={latest?.equity} formatter={(value) => money(Number(value), currency)} />
+      <DataPointRow label="Liabilities" dataPoint={latest?.liabilities} formatter={(value) => money(Number(value), currency)} />
+      <DataPointRow label="Employees" dataPoint={latest?.employees} formatter={(value) => Number(value).toFixed(0)} />
+      {data.warnings.length > 0 ? <p className="mt-3 text-xs text-amber-700">{data.warnings.join(" ")}</p> : null}
+      {data.notes.length > 0 ? <p className="mt-2 text-xs text-slate-500">{data.notes.join(" ")}</p> : null}
+      <button className="mt-3 rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={onApply}>Apply imported data</button>
+    </div>
+  );
+}
+
 function MetricCard({ label, value, helper }: { label: string; value: string; helper: string }) {
   return (
     <Card className="overflow-hidden">
@@ -453,7 +479,19 @@ export default function Home() {
   }
 
   function latestImportedYear(data: CompanyFinancialData) {
-    return [...data.years].sort((a, b) => b.year - a.year)[0];
+    return data.years[0];
+  }
+
+  function latestRevenueYear(data: CompanyFinancialData) {
+    return data.years.find((year) => typeof year.revenue?.value === "number" && year.revenue.value > 0);
+  }
+
+  function latestEbitdaYear(data: CompanyFinancialData) {
+    return data.years.find((year) => typeof year.ebitda?.value === "number");
+  }
+
+  function importedYearsForHistoricals(data: CompanyFinancialData) {
+    return data.years.slice(0, 3).sort((a, b) => a.year - b.year);
   }
 
   function applyImportedCompanyData() {
@@ -461,38 +499,49 @@ export default function Home() {
       setBizRaportStatus("Fetch BizRaport data before applying.");
       return;
     }
-    const latest = latestImportedYear(companyData);
+    const latestRevenue = latestRevenueYear(companyData);
+    const latestEbitda = latestEbitdaYear(companyData);
     const companyName = companyData.companyName?.value || input.profile.companyName;
     const registrationNumber = companyData.krs?.value || companyData.nip?.value || input.profile.registrationNumber;
     const pkdCode = companyData.pkdCode?.value || input.profile.pkdCode;
+    const website = companyData.website?.value || input.profile.website;
+    const legalForm = companyData.legalForm?.value || input.profile.legalForm;
 
     if (mode === "simple") {
       const nextSimpleInput: SimpleModeInput = {
         ...simpleInput,
         companyName: String(companyName),
         registrationNumber: String(registrationNumber),
+        website: website ? String(website) : simpleInput.website,
         pkdCode: pkdCode ? String(pkdCode) : "",
-        latestRevenue: typeof latest?.revenue?.value === "number" ? latest.revenue.value : simpleInput.latestRevenue,
-        latestEbitda: typeof latest?.ebitda?.value === "number" ? latest.ebitda.value : simpleInput.latestEbitda,
+        legalForm: legalForm ? String(legalForm) : simpleInput.legalForm,
+        latestRevenue: typeof latestRevenue?.revenue?.value === "number" ? latestRevenue.revenue.value : simpleInput.latestRevenue,
+        latestEbitda: typeof latestEbitda?.ebitda?.value === "number" ? latestEbitda.ebitda.value : simpleInput.latestEbitda,
       };
       const nextInput = buildValuationInputFromSimpleMode(nextSimpleInput);
       setSimpleInput(nextSimpleInput);
-      setInput({ ...nextInput, profile: { ...nextInput.profile, pkdCode: pkdCode ? String(pkdCode) : "" } });
+      setInput({ ...nextInput, profile: { ...nextInput.profile, website: website ? String(website) : nextInput.profile.website, pkdCode: pkdCode ? String(pkdCode) : "", legalForm: legalForm ? String(legalForm) : nextInput.profile.legalForm } });
     } else {
+      const importedYears = importedYearsForHistoricals(companyData);
       setInput((current) => ({
         ...current,
         profile: {
           ...current.profile,
           companyName: String(companyName),
           registrationNumber: String(registrationNumber),
+          website: website ? String(website) : current.profile.website,
           pkdCode: pkdCode ? String(pkdCode) : "",
+          legalForm: legalForm ? String(legalForm) : current.profile.legalForm,
         },
-        historicals: current.historicals.map((historical) => {
-          const imported = companyData.years.find((year) => year.year === historical.year);
+        historicals: current.historicals.map((historical, index) => {
+          const imported = importedYears[index];
           return imported ? {
             ...historical,
+            year: imported.year,
             revenue: typeof imported.revenue?.value === "number" ? imported.revenue.value : historical.revenue,
             ebitda: typeof imported.ebitda?.value === "number" ? imported.ebitda.value : historical.ebitda,
+            depreciation: typeof imported.depreciation?.value === "number" ? imported.depreciation.value : historical.depreciation,
+            capex: 0,
           } : historical;
         }),
       }));
@@ -883,7 +932,7 @@ export default function Home() {
               <CardContent className="space-y-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><p className="text-sm text-slate-600">Registration number: {input.profile.registrationNumber}</p><button className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={() => fetchBizRaportData(input.profile.registrationNumber)}>Fetch financials from BizRaport</button></div>
                 {bizRaportStatus && <p className="text-sm text-slate-600">{bizRaportStatus}</p>}
-                {companyData ? <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><DataPointRow label="Company name" dataPoint={companyData.companyName} /><DataPointRow label="Latest imported revenue" dataPoint={latestImportedYear(companyData)?.revenue} formatter={(value) => money(Number(value), input.profile.currency)} /><DataPointRow label="Latest imported EBITDA" dataPoint={latestImportedYear(companyData)?.ebitda} formatter={(value) => money(Number(value), input.profile.currency)} /><DataPointRow label="PKD code" dataPoint={companyData.pkdCode} /><p className="mt-3 text-xs text-amber-700">{companyData.warnings.join(" ")}</p><button className="mt-3 rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={applyImportedCompanyData}>Apply imported data</button></div> : <p className="text-sm text-slate-500">No imported BizRaport data preview yet.</p>}
+                {companyData ? <BizRaportFinancialPreview data={companyData} currency={input.profile.currency} onApply={applyImportedCompanyData} /> : <p className="text-sm text-slate-500">No imported BizRaport data preview yet.</p>}
               </CardContent>
             </Card>
           </section>
@@ -940,7 +989,7 @@ export default function Home() {
               </div>
               <div className="space-y-3 rounded-2xl border border-teal-100 bg-teal-50/60 p-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold text-slate-950">Public KRS profile</p><p className="text-xs text-slate-600">Public KRS API provides registry data only. Financial statement data still requires manual input or an external financial-data provider.</p></div><button className="rounded-xl border border-teal-200 bg-white px-4 py-3 text-sm font-semibold text-teal-800 shadow-sm transition hover:border-teal-700" onClick={() => fetchKrsProfile(input.profile.registrationNumber)}>Fetch public KRS profile</button></div>{krsStatus && <p className="text-sm text-slate-600">{krsStatus}</p>}{krsProfile ? <KrsProfilePreview profile={krsProfile} onApply={applyKrsProfile} /> : null}</div>
               <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold text-slate-950">BizRaport financial import</p><p className="text-xs text-slate-600">Optional financial-data provider. Credentials stay on the server.</p></div><button className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={() => fetchBizRaportData()}>Fetch financials from BizRaport</button></div>
-                {companyData ? <div className="rounded-2xl border border-slate-200 bg-white p-4"><DataPointRow label="Company name" dataPoint={companyData.companyName} /><DataPointRow label="Latest imported revenue" dataPoint={latestImportedYear(companyData)?.revenue} formatter={(value) => money(Number(value), input.profile.currency)} /><DataPointRow label="Latest imported EBITDA" dataPoint={latestImportedYear(companyData)?.ebitda} formatter={(value) => money(Number(value), input.profile.currency)} /><DataPointRow label="Cash" dataPoint={companyData.cash} formatter={(value) => money(Number(value), input.profile.currency)} /><DataPointRow label="Debt" dataPoint={companyData.debt} formatter={(value) => money(Number(value), input.profile.currency)} /><p className="mt-3 text-xs text-amber-700">{companyData.warnings.join(" ")}</p><p className="mt-2 text-xs text-slate-500">{companyData.notes.join(" ")}</p><button className="mt-3 rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={applyImportedCompanyData}>Apply imported data</button></div> : <p className="text-sm text-slate-500">No imported BizRaport financial preview yet.</p>}
+                {companyData ? <BizRaportFinancialPreview data={companyData} currency={input.profile.currency} onApply={applyImportedCompanyData} /> : <p className="text-sm text-slate-500">No imported BizRaport financial preview yet.</p>}
               </div>
             </CardContent>
           </Card>
