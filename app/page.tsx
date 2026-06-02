@@ -31,7 +31,7 @@ import { calculateDcf } from "@/lib/valuation/dcf";
 import { calculateValuationDiagnostics } from "@/lib/valuation/diagnostics";
 import { buildCombinedCsvExport, buildReportJson, buildReportSummaryText, buildValuationReport } from "@/lib/valuation/export";
 import { createBlankValuationInput } from "@/lib/valuation/default-data";
-import { calculateNormalizationMarginUplift, forecastFinancials, normalizeLatestEbitda, sumNormalizationAdjustments } from "@/lib/valuation/forecast";
+import { calculateNormalizationMarginUplift, forecastFinancials, normalizeLatestEbitda, seedForecastFromHistoricals, sumNormalizationAdjustments } from "@/lib/valuation/forecast";
 import {
   calculateEvToEquityBridgeOutput,
   calculateExecutiveSummary,
@@ -300,6 +300,8 @@ export default function Home() {
   const [bizRaportSearchResults, setBizRaportSearchResults] = useState<BizRaportSearchItem[]>([]);
   const [selectedBizRaportKrs, setSelectedBizRaportKrs] = useState("");
   const [bizRaportStatus, setBizRaportStatus] = useState("");
+  const [forecastSeedNotes, setForecastSeedNotes] = useState<string[]>([]);
+  const [forecastAutoSeeded, setForecastAutoSeeded] = useState(false);
 
   const validation = useMemo(() => valuationInputSchema.safeParse(input), [input]);
   const model = useMemo(() => {
@@ -494,6 +496,15 @@ export default function Home() {
     return data.years.slice(0, 3).sort((a, b) => a.year - b.year);
   }
 
+  function generateForecastFromHistoricalInputs() {
+    setInput((current) => {
+      const seeded = seedForecastFromHistoricals(current);
+      setForecastSeedNotes(seeded.seed.notes);
+      setForecastAutoSeeded(true);
+      return seeded.input;
+    });
+  }
+
   function applyImportedCompanyData() {
     if (!companyData) {
       setBizRaportStatus("Fetch BizRaport data before applying.");
@@ -518,9 +529,28 @@ export default function Home() {
         latestRevenue: typeof latestRevenue?.revenue?.value === "number" ? latestRevenue.revenue.value : simpleInput.latestRevenue,
         latestEbitda: typeof latestEbitda?.ebitda?.value === "number" ? latestEbitda.ebitda.value : simpleInput.latestEbitda,
       };
-      const nextInput = buildValuationInputFromSimpleMode(nextSimpleInput);
-      setSimpleInput(nextSimpleInput);
-      setInput({ ...nextInput, profile: { ...nextInput.profile, website: website ? String(website) : nextInput.profile.website, pkdCode: pkdCode ? String(pkdCode) : "", legalForm: legalForm ? String(legalForm) : nextInput.profile.legalForm } });
+      const baseInput = buildValuationInputFromSimpleMode(nextSimpleInput);
+      const importedYears = importedYearsForHistoricals(companyData);
+      const inputWithImportedHistoricals = {
+        ...baseInput,
+        historicals: baseInput.historicals.map((historical, index) => {
+          const imported = importedYears[index];
+          return imported ? {
+            ...historical,
+            year: imported.year,
+            revenue: typeof imported.revenue?.value === "number" ? imported.revenue.value : historical.revenue,
+            ebitda: typeof imported.ebitda?.value === "number" ? imported.ebitda.value : historical.ebitda,
+            depreciation: typeof imported.depreciation?.value === "number" ? imported.depreciation.value : historical.depreciation,
+            capex: 0,
+          } : historical;
+        }),
+        profile: { ...baseInput.profile, website: website ? String(website) : baseInput.profile.website, pkdCode: pkdCode ? String(pkdCode) : "", legalForm: legalForm ? String(legalForm) : baseInput.profile.legalForm },
+      };
+      const seeded = seedForecastFromHistoricals(inputWithImportedHistoricals);
+      setSimpleInput({ ...nextSimpleInput, expectedAnnualRevenueGrowth: seeded.input.forecast.revenueGrowth[0], expectedEbitdaMargin: seeded.input.forecast.ebitdaMargin[0] });
+      setForecastSeedNotes(seeded.seed.notes);
+      setForecastAutoSeeded(true);
+      setInput(seeded.input);
     } else {
       const importedYears = importedYearsForHistoricals(companyData);
       setInput((current) => ({
@@ -631,6 +661,8 @@ export default function Home() {
     setSelectedBizRaportKrs("");
     setKrsStatus("");
     setBizRaportStatus("");
+    setForecastSeedNotes([]);
+    setForecastAutoSeeded(false);
     setWizardStep(1);
     setMode("simple");
     setWorkspaceStarted(false);
@@ -882,6 +914,7 @@ export default function Home() {
                 <div className="space-y-1.5"><Label>Industry</Label><Input value={simpleInput.industry} onChange={(event) => updateSimple("industry", event.target.value)} /></div>
                 <div className="space-y-1.5"><Label>Registration Number</Label><Input value={simpleInput.registrationNumber} onChange={(event) => updateSimple("registrationNumber", event.target.value)} /></div>
                 <div className="space-y-3 rounded-2xl border border-teal-100 bg-teal-50/60 p-4 md:col-span-2"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold text-slate-950">Public KRS profile</p><p className="text-xs text-slate-600">Public KRS API provides registry data only. Financial statement data still requires manual input or an external financial-data provider.</p></div><button className="rounded-xl border border-teal-200 bg-white px-4 py-2 text-sm font-semibold text-teal-800 transition hover:border-teal-700" onClick={() => fetchKrsProfile(simpleInput.registrationNumber)}>Fetch public KRS profile</button></div>{krsStatus && <p className="text-sm text-slate-600">{krsStatus}</p>}{krsProfile ? <KrsProfilePreview profile={krsProfile} onApply={applyKrsProfile} /> : null}</div>
+                {forecastAutoSeeded ? <div className="md:col-span-2"><Badge className="border-teal-200 bg-teal-50 text-teal-800">Auto-generated from historical financials</Badge>{forecastSeedNotes.map((note) => <p key={note} className="mt-2 text-xs text-slate-500">{note}</p>)}</div> : null}
                 <NumberField label="Latest revenue" value={simpleInput.latestRevenue} onChange={(value) => updateSimple("latestRevenue", value)} />
                 <NumberField label="Latest EBITDA" value={simpleInput.latestEbitda} onChange={(value) => updateSimple("latestEbitda", value)} />
                 <NumberField label="Cash" value={simpleInput.cash} onChange={(value) => updateSimple("cash", value)} />
@@ -1058,6 +1091,8 @@ export default function Home() {
             <CardHeader>
               <CardTitle>Forecast Assumptions for 5 Years</CardTitle>
               <CardDescription>FCFF formula: revenue × normalized EBITDA margin - cash taxes + D&A - capex - change in net working capital.</CardDescription>
+              <div className="mt-3 flex flex-wrap items-center gap-3"><button className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={generateForecastFromHistoricalInputs}>Generate forecast from historicals</button>{forecastAutoSeeded ? <Badge className="border-teal-200 bg-teal-50 text-teal-800">Auto-generated from historical financials</Badge> : null}</div>
+              {forecastSeedNotes.map((note) => <p key={note} className="mt-2 text-xs text-slate-500">{note}</p>)}
             </CardHeader>
             <CardContent className="overflow-x-auto">
               <table className="w-full min-w-[720px] text-sm">
