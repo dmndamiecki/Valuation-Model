@@ -17,6 +17,10 @@ import {
   YAxis,
 } from "recharts";
 import { Badge } from "@/components/ui/badge";
+import { createDamodaranManualSeedSnapshot } from "@/lib/data-sources/damodaran";
+import { createFredManualSeedSnapshot } from "@/lib/data-sources/fred";
+import { getCompanyDataSources, getMarketDataSources } from "@/lib/data-sources/mapping";
+import type { CompanyFinancialData, DataPoint, ImportedFinancialYear, MarketDataSnapshot } from "@/lib/data-sources/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -35,6 +39,7 @@ import {
   calculateValuationWarnings,
 } from "@/lib/valuation/output";
 import { calculateScenarioAnalysis } from "@/lib/valuation/scenarios";
+import { applyIndustryTemplate, getIndustryTemplate, industryTemplates, type IndustryTemplate, type TemplateValue } from "@/lib/valuation/industry-templates";
 import { buildValuationInputFromSimpleMode, simpleInputFromValuationInput, type SimpleModeInput } from "@/lib/valuation/simple-mode";
 import { buildCenteredSensitivityCases, buildSensitivityTable } from "@/lib/valuation/sensitivity";
 import { valuationInputSchema, type ValuationInput } from "@/lib/valuation/types";
@@ -42,10 +47,11 @@ import { calculateWacc } from "@/lib/valuation/wacc";
 
 type PercentArrayKey = "revenueGrowth" | "ebitdaMargin" | "depreciationPctRevenue" | "capexPctRevenue";
 type ValuationMode = "simple" | "professional";
-type WizardInput = SimpleModeInput & { valuationType: ValuationMode };
+type WizardInput = SimpleModeInput & { valuationType: ValuationMode; industryTemplateName: string; applyIndustryTemplate: boolean };
+type BizRaportSearchItem = { krs: string };
 
 const defaultSimpleModeInput = simpleInputFromValuationInput(defaultValuationInput);
-const defaultWizardInput: WizardInput = { ...defaultSimpleModeInput, valuationType: "simple" };
+const defaultWizardInput: WizardInput = { ...defaultSimpleModeInput, valuationType: "simple", industryTemplateName: "Manufacturing", applyIndustryTemplate: false };
 
 type WorkflowStatus = "complete" | "warning" | "missing inputs";
 
@@ -100,7 +106,7 @@ function WorkflowNav({ sections }: { sections: WorkflowSectionItem[] }) {
 }
 
 type ScalarPath =
-  | ["profile", "companyName" | "country" | "currency" | "registrationNumber" | "website" | "industry" | "valuationDate"]
+  | ["profile", "companyName" | "country" | "currency" | "registrationNumber" | "website" | "pkdCode" | "industry" | "valuationDate"]
   | ["forecast", "taxRate"]
   | ["wacc", keyof ValuationInput["wacc"]]
   | ["terminalValue", "perpetualGrowthRate" | "exitEbitdaMultiple"]
@@ -130,6 +136,72 @@ function multiple(value: number) {
 
 function asNumber(value: string) {
   return Number.isFinite(Number(value)) ? Number(value) : 0;
+}
+
+function assumptionValue(value: TemplateValue, format: "percent" | "multiple" | "number") {
+  if (format === "percent") {
+    return `${(value.value * 100).toFixed(1)}%`;
+  }
+  if (format === "multiple") {
+    return `${value.value.toFixed(1)}x`;
+  }
+  return value.value.toFixed(2);
+}
+
+function SourceMeta({ dataPoint }: { dataPoint: DataPoint<number | string | null> }) {
+  return (
+    <span className="block text-xs text-slate-500">
+      Source: {dataPoint.source} · URL: {dataPoint.sourceUrl} · Date: {dataPoint.sourceDate} · Confidence: {dataPoint.confidence} · {dataPoint.isUserOverridden ? "user overridden" : "not overridden"}
+    </span>
+  );
+}
+
+function DataPointRow({ label, dataPoint, formatter = String }: { label: string; dataPoint?: DataPoint<number | string | null>; formatter?: (value: number | string | null) => string }) {
+  return (
+    <div className="border-b border-slate-100 py-2 text-sm">
+      <div className="flex items-center justify-between gap-3">
+        <span className="font-medium text-slate-700">{label}</span>
+        <span className="text-right font-semibold text-slate-950">{dataPoint && dataPoint.value !== null ? formatter(dataPoint.value) : "Unavailable"}</span>
+      </div>
+      {dataPoint ? <SourceMeta dataPoint={dataPoint} /> : <span className="block text-xs text-slate-500">No source connected yet.</span>}
+    </div>
+  );
+}
+
+function TemplateAssumptionTable({ template }: { template: IndustryTemplate }) {
+  const rows = [
+    ["Revenue growth", template.assumptions.revenueGrowth, "percent"],
+    ["EBITDA margin", template.assumptions.ebitdaMargin, "percent"],
+    ["CAPEX / revenue", template.assumptions.capexPctRevenue, "percent"],
+    ["NWC / revenue", template.assumptions.nwcPctRevenue, "percent"],
+    ["DLOM", template.assumptions.dlom, "percent"],
+    ["Beta", template.assumptions.beta, "number"],
+    ["EV / EBITDA", template.assumptions.evEbitdaMultiple, "multiple"],
+    ["EV / Revenue", template.assumptions.evRevenueMultiple, "multiple"],
+  ] as const;
+
+  return (
+    <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+      <table className="w-full min-w-[760px] text-sm">
+        <thead>
+          <tr className="border-b bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+            <th className="p-3">Assumption</th><th className="p-3 text-right">Value</th><th className="p-3">Source</th><th className="p-3">Source date</th><th className="p-3">Confidence</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(([label, assumption, format]) => (
+            <tr key={label} className="border-b border-slate-100 align-top">
+              <td className="p-3 font-semibold text-slate-800">{label}</td>
+              <td className="p-3 text-right font-semibold text-slate-950">{assumptionValue(assumption, format)}</td>
+              <td className="p-3 text-slate-700">{assumption.source}{assumption.note ? <span className="block text-xs text-slate-500">{assumption.note}</span> : null}</td>
+              <td className="p-3 text-slate-600">{assumption.sourceDate}</td>
+              <td className="p-3"><Badge className={assumption.confidence === "low" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-blue-200 bg-blue-50 text-blue-800"}>{assumption.confidence}</Badge></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 function MetricCard({ label, value, helper }: { label: string; value: string; helper: string }) {
@@ -174,6 +246,11 @@ export default function Home() {
   const [mode, setMode] = useState<ValuationMode>("simple");
   const [input, setInput] = useState<ValuationInput>(() => buildValuationInputFromSimpleMode(defaultSimpleModeInput));
   const [simpleInput, setSimpleInput] = useState<SimpleModeInput>(defaultSimpleModeInput);
+  const [companyData, setCompanyData] = useState<CompanyFinancialData | null>(null);
+  const [marketData, setMarketData] = useState<MarketDataSnapshot | null>(null);
+  const [bizRaportSearchResults, setBizRaportSearchResults] = useState<BizRaportSearchItem[]>([]);
+  const [selectedBizRaportKrs, setSelectedBizRaportKrs] = useState("");
+  const [bizRaportStatus, setBizRaportStatus] = useState("");
 
   const validation = useMemo(() => valuationInputSchema.safeParse(input), [input]);
   const model = useMemo(() => {
@@ -216,6 +293,115 @@ export default function Home() {
     }));
   }
 
+  async function searchBizRaportFromWizard() {
+    const query = wizardInput.registrationNumber || wizardInput.companyName;
+    if (!query.trim()) {
+      setBizRaportStatus("Enter a company name, KRS, NIP, or REGON before searching.");
+      return;
+    }
+    setBizRaportStatus("Searching BizRaport...");
+    try {
+      const response = await fetch(`/api/company-data/bizraport/search?query=${encodeURIComponent(query)}&limit=10`);
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error ?? "BizRaport search failed.");
+      }
+      const results = (payload.data ?? []) as BizRaportSearchItem[];
+      setBizRaportSearchResults(results);
+      setBizRaportStatus(results.length > 0 ? "Select a KRS result to continue." : "No BizRaport results found.");
+    } catch (error) {
+      setBizRaportSearchResults([]);
+      setBizRaportStatus(error instanceof Error ? error.message : "BizRaport search failed.");
+    }
+  }
+
+  async function fetchBizRaportData(krsOrNip = selectedBizRaportKrs || input.profile.registrationNumber || wizardInput.registrationNumber) {
+    if (!krsOrNip.trim()) {
+      setBizRaportStatus("Enter or select a KRS/NIP before fetching data.");
+      return;
+    }
+    setBizRaportStatus("Fetching BizRaport company data...");
+    try {
+      const isNip = krsOrNip.replace(/\D/g, "").length === 10;
+      const query = isNip ? `nip=${encodeURIComponent(krsOrNip)}` : `krs=${encodeURIComponent(krsOrNip)}`;
+      const response = await fetch(`/api/company-data/bizraport/fetch?${query}`);
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error ?? "BizRaport fetch failed.");
+      }
+      setCompanyData(payload.data as CompanyFinancialData);
+      setBizRaportStatus("BizRaport data fetched. Review preview before applying.");
+    } catch (error) {
+      setCompanyData(null);
+      setBizRaportStatus(error instanceof Error ? error.message : "BizRaport fetch failed.");
+    }
+  }
+
+  function selectBizRaportKrs(krs: string) {
+    setSelectedBizRaportKrs(krs);
+    setWizardInput((current) => ({ ...current, registrationNumber: krs }));
+    setBizRaportStatus(`Selected KRS ${krs}.`);
+  }
+
+  function latestImportedYear(data: CompanyFinancialData) {
+    return [...data.years].sort((a, b) => b.year - a.year)[0];
+  }
+
+  function applyImportedCompanyData() {
+    if (!companyData) {
+      setBizRaportStatus("Fetch BizRaport data before applying.");
+      return;
+    }
+    const latest = latestImportedYear(companyData);
+    const companyName = companyData.companyName?.value || input.profile.companyName;
+    const registrationNumber = companyData.krs?.value || companyData.nip?.value || input.profile.registrationNumber;
+    const pkdCode = companyData.pkdCode?.value || input.profile.pkdCode;
+
+    if (mode === "simple") {
+      const nextSimpleInput: SimpleModeInput = {
+        ...simpleInput,
+        companyName: String(companyName),
+        registrationNumber: String(registrationNumber),
+        pkdCode: pkdCode ? String(pkdCode) : "",
+        latestRevenue: typeof latest?.revenue?.value === "number" ? latest.revenue.value : simpleInput.latestRevenue,
+        latestEbitda: typeof latest?.ebitda?.value === "number" ? latest.ebitda.value : simpleInput.latestEbitda,
+      };
+      const nextInput = buildValuationInputFromSimpleMode(nextSimpleInput);
+      setSimpleInput(nextSimpleInput);
+      setInput({ ...nextInput, profile: { ...nextInput.profile, pkdCode: pkdCode ? String(pkdCode) : "" } });
+    } else {
+      setInput((current) => ({
+        ...current,
+        profile: {
+          ...current.profile,
+          companyName: String(companyName),
+          registrationNumber: String(registrationNumber),
+          pkdCode: pkdCode ? String(pkdCode) : "",
+        },
+        historicals: current.historicals.map((historical) => {
+          const imported = companyData.years.find((year) => year.year === historical.year);
+          return imported ? {
+            ...historical,
+            revenue: typeof imported.revenue?.value === "number" ? imported.revenue.value : historical.revenue,
+            ebitda: typeof imported.ebitda?.value === "number" ? imported.ebitda.value : historical.ebitda,
+          } : historical;
+        }),
+      }));
+    }
+    setBizRaportStatus("Imported data applied after user confirmation.");
+  }
+
+  function refreshMarketDataPlaceholder() {
+    const fetchedAt = new Date().toISOString();
+    const damodaran = createDamodaranManualSeedSnapshot(fetchedAt);
+    const fred = createFredManualSeedSnapshot(fetchedAt);
+    setMarketData({
+      ...damodaran,
+      riskFreeRate: fred.riskFreeRate,
+      notes: [...fred.notes, ...damodaran.notes],
+    });
+  }
+
   function startValuation() {
     if (wizardInput.valuationType === "simple") {
       const nextSimpleInput: SimpleModeInput = {
@@ -223,6 +409,7 @@ export default function Home() {
         country: wizardInput.country,
         currency: wizardInput.currency,
         registrationNumber: wizardInput.registrationNumber,
+        pkdCode: wizardInput.pkdCode,
         website: wizardInput.website,
         industry: wizardInput.industry,
         latestRevenue: wizardInput.latestRevenue,
@@ -233,8 +420,11 @@ export default function Home() {
         expectedEbitdaMargin: wizardInput.expectedEbitdaMargin,
         valuationDate: wizardInput.valuationDate,
       };
-      setSimpleInput(nextSimpleInput);
-      setInput(buildValuationInputFromSimpleMode(nextSimpleInput));
+      const baseInput = buildValuationInputFromSimpleMode(nextSimpleInput);
+      const template = getIndustryTemplate(wizardInput.industryTemplateName);
+      const nextInput = wizardInput.applyIndustryTemplate && template ? applyIndustryTemplate(baseInput, template) : baseInput;
+      setSimpleInput(simpleInputFromValuationInput(nextInput));
+      setInput(nextInput);
       setMode("simple");
     } else {
       const professionalInput: ValuationInput = {
@@ -245,21 +435,36 @@ export default function Home() {
           country: wizardInput.country,
           currency: wizardInput.currency,
           registrationNumber: wizardInput.registrationNumber,
+          pkdCode: wizardInput.pkdCode,
           website: wizardInput.website,
           industry: wizardInput.industry,
         },
       };
-      setInput(professionalInput);
-      setSimpleInput(simpleInputFromValuationInput(professionalInput));
+      const template = getIndustryTemplate(wizardInput.industryTemplateName);
+      const nextInput = wizardInput.applyIndustryTemplate && template ? applyIndustryTemplate(professionalInput, template) : professionalInput;
+      setInput(nextInput);
+      setSimpleInput(simpleInputFromValuationInput(nextInput));
       setMode("professional");
     }
     setWorkspaceStarted(true);
   }
 
   function startNewValuation() {
-    setWizardInput({ ...simpleInputFromValuationInput(input), valuationType: mode });
+    setWizardInput({ ...simpleInputFromValuationInput(input), valuationType: mode, industryTemplateName: getIndustryTemplate(input.profile.industry)?.name ?? "Manufacturing", applyIndustryTemplate: false });
     setWizardStep(1);
     setWorkspaceStarted(false);
+  }
+
+  function selectWizardIndustryTemplate(templateName: string) {
+    setWizardInput((current) => ({ ...current, industryTemplateName: templateName, industry: templateName }));
+  }
+
+  function applyTemplateToInput(templateName: string) {
+    const template = getIndustryTemplate(templateName);
+    if (!template) {
+      return;
+    }
+    setInput((current) => applyIndustryTemplate(current, template));
   }
 
   function updateSimple<K extends keyof SimpleModeInput>(key: K, value: SimpleModeInput[K]) {
@@ -337,6 +542,10 @@ export default function Home() {
   const normalizedEbitda = normalizeLatestEbitda(input.historicals, input.normalizationAdjustments);
   const adjustmentTotal = sumNormalizationAdjustments(input.normalizationAdjustments);
   const normalizationMarginUplift = calculateNormalizationMarginUplift(input.historicals, input.normalizationAdjustments);
+  const wizardIndustryTemplate = getIndustryTemplate(wizardInput.industryTemplateName);
+  const professionalIndustryTemplate = getIndustryTemplate(input.profile.industry);
+  const companySources = getCompanyDataSources(input.profile.country);
+  const marketSources = getMarketDataSources();
   const validationPaths = validation.success ? [] : validation.error.issues.map((issue) => String(issue.path[0] ?? ""));
   const hasValidationIssue = (paths: string[]) => paths.some((path) => validationPaths.includes(path));
   const hasAreaDiagnostic = (area: string) => model.diagnostics.diagnostics.some((diagnostic) => diagnostic.area === area && diagnostic.severity !== "info");
@@ -392,6 +601,9 @@ export default function Home() {
                   <div className="space-y-1.5"><Label>Industry</Label><Input value={wizardInput.industry} onChange={(event) => updateWizard("industry", event.target.value)} /></div>
                   <div className="space-y-1.5"><Label>Registration Number</Label><Input value={wizardInput.registrationNumber} onChange={(event) => updateWizard("registrationNumber", event.target.value)} /><p className="text-xs text-slate-500">This identifier will be used later for automatic company data retrieval.</p></div>
                   <div className="space-y-1.5"><Label>Website (optional)</Label><Input value={wizardInput.website} onChange={(event) => updateWizard("website", event.target.value)} placeholder="https://example.com" /></div>
+                  <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:col-span-2"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold text-slate-950">BizRaport company search</p><p className="text-xs text-slate-500">Search by company name, KRS, NIP, or REGON. Credentials stay on the server.</p></div><button className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-teal-600 hover:text-teal-800" onClick={searchBizRaportFromWizard}>Search company in BizRaport</button></div>{bizRaportStatus && <p className="text-sm text-slate-600">{bizRaportStatus}</p>}{bizRaportSearchResults.length > 0 && <div className="grid gap-2 sm:grid-cols-2">{bizRaportSearchResults.map((result) => <button key={result.krs} className={`rounded-xl border px-3 py-2 text-left text-sm font-semibold ${selectedBizRaportKrs === result.krs ? "border-teal-600 bg-teal-50 text-teal-900" : "border-slate-200 bg-white text-slate-700"}`} onClick={() => selectBizRaportKrs(result.krs)}>KRS {result.krs}</button>)}</div>}</div>
+                  <div className="space-y-1.5 md:col-span-2"><Label>Industry template</Label><select className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 shadow-sm focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-100" value={wizardInput.industryTemplateName} onChange={(event) => selectWizardIndustryTemplate(event.target.value)}>{industryTemplates.map((template) => <option key={template.name} value={template.name}>{template.name}</option>)}</select></div>
+                  {wizardIndustryTemplate && <div className="space-y-3 md:col-span-2"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold text-slate-950">Suggested assumptions for {wizardIndustryTemplate.name}</p><p className="text-xs text-slate-500">Editable placeholders only; Damodaran-labeled values are manual seeds pending automated import, not live market data.</p></div><button className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={() => updateWizard("applyIndustryTemplate", true)}>Apply template assumptions</button></div><TemplateAssumptionTable template={wizardIndustryTemplate} />{wizardInput.applyIndustryTemplate && <Badge className="border-teal-200 bg-teal-50 text-teal-800">Template will be applied when valuation starts</Badge>}</div>}
                 </div>
               )}
 
@@ -531,6 +743,14 @@ export default function Home() {
                 </div>
               </CardContent>
             </Card>
+            <Card className="xl:col-span-2">
+              <CardHeader><CardTitle>BizRaport Import Preview</CardTitle><CardDescription>Fetch company data by KRS/NIP, review imported values, then apply explicitly. Credentials stay on the server.</CardDescription></CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><p className="text-sm text-slate-600">Registration number: {input.profile.registrationNumber}</p><button className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={() => fetchBizRaportData(input.profile.registrationNumber)}>Fetch BizRaport data</button></div>
+                {bizRaportStatus && <p className="text-sm text-slate-600">{bizRaportStatus}</p>}
+                {companyData ? <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><DataPointRow label="Company name" dataPoint={companyData.companyName} /><DataPointRow label="Latest imported revenue" dataPoint={latestImportedYear(companyData)?.revenue} formatter={(value) => money(Number(value), input.profile.currency)} /><DataPointRow label="Latest imported EBITDA" dataPoint={latestImportedYear(companyData)?.ebitda} formatter={(value) => money(Number(value), input.profile.currency)} /><DataPointRow label="PKD code" dataPoint={companyData.pkdCode} /><p className="mt-3 text-xs text-amber-700">{companyData.warnings.join(" ")}</p><button className="mt-3 rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={applyImportedCompanyData}>Apply imported data</button></div> : <p className="text-sm text-slate-500">No imported BizRaport data preview yet.</p>}
+              </CardContent>
+            </Card>
           </section>
         ) : (
           <>
@@ -566,7 +786,36 @@ export default function Home() {
               <div className="space-y-1.5"><Label>Industry</Label><Input value={input.profile.industry} onChange={(e) => update(["profile", "industry"], e.target.value)} /></div>
               <div className="space-y-1.5"><Label>Registration Number</Label><Input value={input.profile.registrationNumber} onChange={(e) => update(["profile", "registrationNumber"], e.target.value)} /></div>
               <div className="space-y-1.5"><Label>Website (optional)</Label><Input value={input.profile.website} onChange={(e) => update(["profile", "website"], e.target.value)} /></div>
+              <div className="space-y-1.5"><Label>PKD code</Label><Input value={input.profile.pkdCode} onChange={(e) => update(["profile", "pkdCode"], e.target.value)} /></div>
               <div className="space-y-1.5"><Label>Valuation date</Label><Input value={input.profile.valuationDate} onChange={(e) => update(["profile", "valuationDate"], e.target.value)} /></div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle>Industry Template</CardTitle><CardDescription>Optional editable assumption seed. Values are not live market data.</CardDescription></CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-1.5"><Label>Industry template selector</Label><select className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 shadow-sm focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-100" value={professionalIndustryTemplate?.name ?? ""} onChange={(event) => update(["profile", "industry"], event.target.value)}><option value="">Select template</option>{industryTemplates.map((template) => <option key={template.name} value={template.name}>{template.name}</option>)}</select></div>
+              {professionalIndustryTemplate ? <><TemplateAssumptionTable template={professionalIndustryTemplate} /><button className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={() => applyTemplateToInput(professionalIndustryTemplate.name)}>Apply template assumptions</button></> : <p className="text-sm text-slate-500">Select an industry template to review suggested assumptions and sources.</p>}
+            </CardContent>
+          </Card>
+          <Card className="xl:col-span-2">
+            <CardHeader><CardTitle>Data Sources</CardTitle><CardDescription>Server-side source architecture for imports. BizRaport credentials remain on the server and are never exposed to the browser.</CardDescription></CardHeader>
+            <CardContent className="grid gap-6 lg:grid-cols-2">
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-sm font-bold uppercase tracking-wide text-slate-600">Company data</h3>
+                  <p className="mt-1 text-sm text-slate-500">Available source mapping: {companySources.map((source) => source.name).join(", ") || "No mapped source"}</p>
+                </div>
+                <button className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={() => fetchBizRaportData()}>Fetch BizRaport data</button>
+                {companyData ? <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><DataPointRow label="Company name" dataPoint={companyData.companyName} /><DataPointRow label="Latest imported revenue" dataPoint={latestImportedYear(companyData)?.revenue} formatter={(value) => money(Number(value), input.profile.currency)} /><DataPointRow label="Latest imported EBITDA" dataPoint={latestImportedYear(companyData)?.ebitda} formatter={(value) => money(Number(value), input.profile.currency)} /><DataPointRow label="Cash" dataPoint={companyData.cash} formatter={(value) => money(Number(value), input.profile.currency)} /><DataPointRow label="Debt" dataPoint={companyData.debt} formatter={(value) => money(Number(value), input.profile.currency)} /><p className="mt-3 text-xs text-amber-700">{companyData.warnings.join(" ")}</p><p className="mt-2 text-xs text-slate-500">{companyData.notes.join(" ")}</p><button className="mt-3 rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={applyImportedCompanyData}>Apply imported data</button></div> : <p className="text-sm text-slate-500">Company import has not been run. Fetching uses the server-side BizRaport route and requires configured credentials.</p>}
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-sm font-bold uppercase tracking-wide text-slate-600">Market data</h3>
+                  <p className="mt-1 text-sm text-slate-500">Configured placeholders: {marketSources.map((source) => source.name).join(", ")}</p>
+                </div>
+                <button className="rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={refreshMarketDataPlaceholder}>Refresh market data</button>
+                {marketData ? <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><DataPointRow label="Risk-free rate" dataPoint={marketData.riskFreeRate} formatter={(value) => pct(Number(value))} /><DataPointRow label="Equity risk premium" dataPoint={marketData.equityRiskPremium} formatter={(value) => pct(Number(value))} /><DataPointRow label="Beta" dataPoint={marketData.beta} formatter={(value) => Number(value).toFixed(2)} /><DataPointRow label="EV / EBITDA" dataPoint={marketData.evEbitdaMultiple} formatter={(value) => multiple(Number(value))} /><DataPointRow label="EV / Revenue" dataPoint={marketData.evRevenueMultiple} formatter={(value) => multiple(Number(value))} /><p className="mt-3 text-xs text-slate-500">{marketData.notes.join(" ")}</p></div> : <p className="text-sm text-slate-500">Market data refresh has not been run. Button currently creates manual placeholder snapshots only.</p>}
+              </div>
             </CardContent>
           </Card>
         </div>

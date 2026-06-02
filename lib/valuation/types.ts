@@ -11,6 +11,7 @@ export const companyProfileSchema = z.object({
   currency: z.string().min(1),
   registrationNumber: z.string().min(1),
   website: z.string(),
+  pkdCode: z.string(),
   industry: z.string().min(1),
   valuationDate: z.string().min(1),
 });

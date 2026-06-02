@@ -6,6 +6,7 @@ export const defaultValuationInput: ValuationInput = {
     country: "United States",
     currency: "USD",
     registrationNumber: "US-DE-1234567",
+    pkdCode: "",
     website: "https://harborprecision.example",
     industry: "Niche industrial manufacturing",
     valuationDate: "2026-06-01",
