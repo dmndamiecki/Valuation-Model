@@ -25,138 +25,102 @@ export type TemplateValue = {
 export type IndustryTemplate = {
   name: IndustryTemplateName;
   assumptions: {
-    revenueGrowth: TemplateValue;
-    ebitdaMargin: TemplateValue;
-    capexPctRevenue: TemplateValue;
-    nwcPctRevenue: TemplateValue;
     dlom: TemplateValue;
     beta: TemplateValue;
-    evEbitdaMultiple: TemplateValue;
-    evRevenueMultiple: TemplateValue;
+    equityRiskPremium: TemplateValue;
+    defaultTaxRate?: TemplateValue;
   };
 };
 
-const internalSource = (value: number, confidence: TemplateConfidence = "medium"): TemplateValue => ({
+const internalSource = (value: number, confidence: TemplateConfidence = "medium", note = "Editable SME assumption for MVP onboarding; not external market data."): TemplateValue => ({
   value,
   source: "Internal SME assumption",
-  sourceDate: "2026-06-01 placeholder seed",
+  sourceDate: "2026-06-01 manual seed",
   confidence,
   isUserEditable: true,
-  note: "Editable placeholder assumption for MVP onboarding; not external market data.",
+  note,
 });
 
-const damodaranManualSeed = (value: number): TemplateValue => ({
+const betaManualSeed = (value: number): TemplateValue => ({
   value,
   source: "Damodaran sector dataset",
   sourceDate: "manual seed pending automated import",
   confidence: "low",
   isUserEditable: true,
-  note: "Manual seed pending automated import; not live market data.",
+  note: "Template seed for industry beta pending automated import; not live market data.",
 });
+
+const erpManualSeed = (value = 0.055): TemplateValue => internalSource(
+  value,
+  "low",
+  "Template-level ERP seed used only until a country-specific ERP source is applied; not live market data.",
+);
+
+const dlomSeed = (value: number): TemplateValue => internalSource(value, "medium", "Editable private-company DLOM seed; should be reviewed for the specific facts and circumstances.");
 
 export const industryTemplates: IndustryTemplate[] = [
   {
     name: "Manufacturing",
     assumptions: {
-      revenueGrowth: internalSource(0.045, "medium"),
-      ebitdaMargin: internalSource(0.14, "medium"),
-      capexPctRevenue: internalSource(0.045, "medium"),
-      nwcPctRevenue: internalSource(0.13, "medium"),
-      dlom: internalSource(0.18, "medium"),
-      beta: damodaranManualSeed(1.05),
-      evEbitdaMultiple: damodaranManualSeed(6.2),
-      evRevenueMultiple: damodaranManualSeed(0.95),
+      dlom: dlomSeed(0.18),
+      beta: betaManualSeed(1.05),
+      equityRiskPremium: erpManualSeed(),
     },
   },
   {
     name: "Software",
     assumptions: {
-      revenueGrowth: internalSource(0.12, "low"),
-      ebitdaMargin: internalSource(0.22, "low"),
-      capexPctRevenue: internalSource(0.025, "medium"),
-      nwcPctRevenue: internalSource(0.06, "medium"),
-      dlom: internalSource(0.2, "medium"),
-      beta: damodaranManualSeed(1.15),
-      evEbitdaMultiple: damodaranManualSeed(8.5),
-      evRevenueMultiple: damodaranManualSeed(2.5),
+      dlom: dlomSeed(0.2),
+      beta: betaManualSeed(1.15),
+      equityRiskPremium: erpManualSeed(),
     },
   },
   {
     name: "Construction",
     assumptions: {
-      revenueGrowth: internalSource(0.04, "medium"),
-      ebitdaMargin: internalSource(0.1, "medium"),
-      capexPctRevenue: internalSource(0.035, "medium"),
-      nwcPctRevenue: internalSource(0.15, "medium"),
-      dlom: internalSource(0.2, "medium"),
-      beta: damodaranManualSeed(1.1),
-      evEbitdaMultiple: damodaranManualSeed(5.5),
-      evRevenueMultiple: damodaranManualSeed(0.65),
+      dlom: dlomSeed(0.2),
+      beta: betaManualSeed(1.1),
+      equityRiskPremium: erpManualSeed(),
     },
   },
   {
     name: "Wholesale",
     assumptions: {
-      revenueGrowth: internalSource(0.035, "medium"),
-      ebitdaMargin: internalSource(0.075, "medium"),
-      capexPctRevenue: internalSource(0.02, "medium"),
-      nwcPctRevenue: internalSource(0.16, "medium"),
-      dlom: internalSource(0.18, "medium"),
-      beta: damodaranManualSeed(1.0),
-      evEbitdaMultiple: damodaranManualSeed(5.8),
-      evRevenueMultiple: damodaranManualSeed(0.45),
+      dlom: dlomSeed(0.18),
+      beta: betaManualSeed(1.0),
+      equityRiskPremium: erpManualSeed(),
     },
   },
   {
     name: "Retail",
     assumptions: {
-      revenueGrowth: internalSource(0.035, "medium"),
-      ebitdaMargin: internalSource(0.08, "medium"),
-      capexPctRevenue: internalSource(0.035, "medium"),
-      nwcPctRevenue: internalSource(0.11, "medium"),
-      dlom: internalSource(0.2, "medium"),
-      beta: damodaranManualSeed(1.05),
-      evEbitdaMultiple: damodaranManualSeed(6.0),
-      evRevenueMultiple: damodaranManualSeed(0.6),
+      dlom: dlomSeed(0.2),
+      beta: betaManualSeed(1.05),
+      equityRiskPremium: erpManualSeed(),
     },
   },
   {
     name: "Logistics",
     assumptions: {
-      revenueGrowth: internalSource(0.05, "medium"),
-      ebitdaMargin: internalSource(0.12, "medium"),
-      capexPctRevenue: internalSource(0.07, "medium"),
-      nwcPctRevenue: internalSource(0.1, "medium"),
-      dlom: internalSource(0.18, "medium"),
-      beta: damodaranManualSeed(1.1),
-      evEbitdaMultiple: damodaranManualSeed(6.3),
-      evRevenueMultiple: damodaranManualSeed(0.8),
+      dlom: dlomSeed(0.18),
+      beta: betaManualSeed(1.1),
+      equityRiskPremium: erpManualSeed(),
     },
   },
   {
     name: "Real Estate",
     assumptions: {
-      revenueGrowth: internalSource(0.03, "low"),
-      ebitdaMargin: internalSource(0.3, "low"),
-      capexPctRevenue: internalSource(0.08, "low"),
-      nwcPctRevenue: internalSource(0.05, "low"),
-      dlom: internalSource(0.22, "medium"),
-      beta: damodaranManualSeed(0.9),
-      evEbitdaMultiple: damodaranManualSeed(10.0),
-      evRevenueMultiple: damodaranManualSeed(3.0),
+      dlom: dlomSeed(0.22),
+      beta: betaManualSeed(0.9),
+      equityRiskPremium: erpManualSeed(),
     },
   },
   {
     name: "Professional Services",
     assumptions: {
-      revenueGrowth: internalSource(0.05, "medium"),
-      ebitdaMargin: internalSource(0.18, "medium"),
-      capexPctRevenue: internalSource(0.015, "medium"),
-      nwcPctRevenue: internalSource(0.08, "medium"),
-      dlom: internalSource(0.2, "medium"),
-      beta: damodaranManualSeed(0.95),
-      evEbitdaMultiple: damodaranManualSeed(7.0),
-      evRevenueMultiple: damodaranManualSeed(1.2),
+      dlom: dlomSeed(0.2),
+      beta: betaManualSeed(0.95),
+      equityRiskPremium: erpManualSeed(),
     },
   },
 ];
@@ -174,27 +138,19 @@ export function applyIndustryTemplate(input: ValuationInput, template: IndustryT
       ...input.profile,
       industry: template.name,
     },
-    forecast: {
-      ...input.forecast,
-      revenueGrowth: Array(5).fill(assumptions.revenueGrowth.value),
-      ebitdaMargin: Array(5).fill(assumptions.ebitdaMargin.value),
-      capexPctRevenue: Array(5).fill(assumptions.capexPctRevenue.value),
-    },
-    workingCapital: {
-      nwcPctRevenue: Array(5).fill(assumptions.nwcPctRevenue.value),
-    },
     wacc: {
       ...input.wacc,
       beta: assumptions.beta.value,
+      equityRiskPremium: assumptions.equityRiskPremium.value,
+      taxRate: assumptions.defaultTaxRate?.value ?? input.wacc.taxRate,
+    },
+    forecast: {
+      ...input.forecast,
+      taxRate: assumptions.defaultTaxRate?.value ?? input.forecast.taxRate,
     },
     discounts: {
       ...input.discounts,
       lackOfMarketability: assumptions.dlom.value,
-    },
-    marketMultiples: {
-      ...input.marketMultiples,
-      evEbitdaMultiple: assumptions.evEbitdaMultiple.value,
-      evRevenueMultiple: assumptions.evRevenueMultiple.value,
     },
   };
 }

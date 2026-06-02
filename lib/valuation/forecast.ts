@@ -94,6 +94,12 @@ function repeatedFive(value: number) {
   return Array(5).fill(value);
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+export const historicalForecastSeedSource = "Generated from historical financial statements";
+
 function defaultForecastTaxRate(country: string, currentTaxRate: number) {
   const normalizedCountry = country.trim().toLowerCase();
   if (normalizedCountry.includes("poland") || normalizedCountry === "pl") {
@@ -109,19 +115,25 @@ export type HistoricalForecastSeed = {
   capexPctRevenue: number;
   nwcPctRevenue: number;
   taxRate: number;
+  source: typeof historicalForecastSeedSource;
   notes: string[];
 };
 
 export function calculateHistoricalForecastSeed(input: ValuationInput): HistoricalForecastSeed {
   const notes: string[] = [];
-  const historicalsByYear = [...input.historicals].sort((a, b) => a.year - b.year);
+  const historicalsByYear = [...input.historicals].sort((a, b) => a.year - b.year).slice(-3);
   const revenueYears = historicalsByYear.filter((year) => year.revenue > 0);
   const oldestRevenueYear = revenueYears[0];
   const latestRevenueYear = revenueYears[revenueYears.length - 1];
   const yearSpan = oldestRevenueYear && latestRevenueYear ? Math.max(1, latestRevenueYear.year - oldestRevenueYear.year) : 1;
-  const revenueCagr = oldestRevenueYear && latestRevenueYear && oldestRevenueYear.revenue > 0 && latestRevenueYear.revenue > 0 && revenueYears.length > 1
+  const rawRevenueCagr = oldestRevenueYear && latestRevenueYear && oldestRevenueYear.revenue > 0 && latestRevenueYear.revenue > 0 && revenueYears.length > 1
     ? (latestRevenueYear.revenue / oldestRevenueYear.revenue) ** (1 / yearSpan) - 1
     : 0;
+  const revenueCagr = Number.isFinite(rawRevenueCagr) ? clamp(rawRevenueCagr, -0.15, 0.15) : 0;
+
+  if (Number.isFinite(rawRevenueCagr) && rawRevenueCagr !== revenueCagr) {
+    notes.push("Revenue CAGR was clamped to the -15% to +15% forecast seeding range.");
+  }
   const ebitdaMargins = historicalsByYear
     .filter((year) => year.revenue > 0 && Number.isFinite(year.ebitda))
     .map((year) => year.ebitda / year.revenue);
@@ -131,21 +143,26 @@ export function calculateHistoricalForecastSeed(input: ValuationInput): Historic
   const capexRatios = historicalsByYear
     .filter((year) => year.revenue > 0 && year.capex > 0)
     .map((year) => year.capex / year.revenue);
-  const latestNwcYear = [...historicalsByYear].reverse().find((year) => year.revenue > 0 && Number.isFinite(year.netWorkingCapital));
+  const nwcRatios = historicalsByYear
+    .filter((year) => year.revenue > 0 && Number.isFinite(year.netWorkingCapital))
+    .map((year) => year.netWorkingCapital / year.revenue);
+  const latestNwcYear = [...historicalsByYear].reverse().find((year) => year.revenue > 0 && Number.isFinite(year.netWorkingCapital) && year.netWorkingCapital !== 0);
   const depreciationPctRevenue = average(depreciationRatios);
   const capexPctRevenue = capexRatios.length > 0 ? average(capexRatios) : depreciationPctRevenue;
+  const nwcPctRevenue = latestNwcYear ? latestNwcYear.netWorkingCapital / latestNwcYear.revenue : average(nwcRatios);
 
   if (capexRatios.length === 0) {
     notes.push("Capex unavailable from source data. Capex seeded equal to depreciation.");
   }
 
   return {
-    revenueCagr: Number.isFinite(revenueCagr) ? revenueCagr : 0,
+    revenueCagr,
     ebitdaMargin: average(ebitdaMargins),
     depreciationPctRevenue,
     capexPctRevenue,
-    nwcPctRevenue: latestNwcYear ? latestNwcYear.netWorkingCapital / latestNwcYear.revenue : 0.1,
+    nwcPctRevenue,
     taxRate: defaultForecastTaxRate(input.profile.country, input.forecast.taxRate || input.wacc.taxRate),
+    source: historicalForecastSeedSource,
     notes,
   };
 }

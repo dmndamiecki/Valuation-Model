@@ -160,14 +160,19 @@ function asNumber(value: string) {
   return Number.isFinite(Number(value)) ? Number(value) : 0;
 }
 
-function assumptionValue(value: TemplateValue, format: "percent" | "multiple" | "number") {
+type DisplayTemplateValue = Omit<TemplateValue, "value"> & { value: number | string };
+
+function assumptionValue(value: DisplayTemplateValue, format: "percent" | "multiple" | "number" | "text") {
+  if (format === "text") {
+    return String(value.value);
+  }
   if (format === "percent") {
-    return `${(value.value * 100).toFixed(1)}%`;
+    return `${(Number(value.value) * 100).toFixed(1)}%`;
   }
   if (format === "multiple") {
-    return `${value.value.toFixed(1)}x`;
+    return `${Number(value.value).toFixed(1)}x`;
   }
-  return value.value.toFixed(2);
+  return Number(value.value).toFixed(2);
 }
 
 function SourceMeta({ dataPoint }: { dataPoint: DataPoint<number | string | null> }) {
@@ -211,14 +216,11 @@ function KrsProfilePreview({ profile, onApply }: { profile: CompanyProfileData; 
 
 function TemplateAssumptionTable({ template }: { template: IndustryTemplate }) {
   const rows = [
-    ["Revenue growth", template.assumptions.revenueGrowth, "percent"],
-    ["EBITDA margin", template.assumptions.ebitdaMargin, "percent"],
-    ["CAPEX / revenue", template.assumptions.capexPctRevenue, "percent"],
-    ["NWC / revenue", template.assumptions.nwcPctRevenue, "percent"],
-    ["DLOM", template.assumptions.dlom, "percent"],
+    ["Industry classification", { ...template.assumptions.beta, value: template.name }, "text"],
     ["Beta", template.assumptions.beta, "number"],
-    ["EV / EBITDA", template.assumptions.evEbitdaMultiple, "multiple"],
-    ["EV / Revenue", template.assumptions.evRevenueMultiple, "multiple"],
+    ["Equity risk premium", template.assumptions.equityRiskPremium, "percent"],
+    ["DLOM", template.assumptions.dlom, "percent"],
+    ...(template.assumptions.defaultTaxRate ? [["Default tax rate", template.assumptions.defaultTaxRate, "percent"]] as const : []),
   ] as const;
 
   return (
@@ -231,9 +233,9 @@ function TemplateAssumptionTable({ template }: { template: IndustryTemplate }) {
         </thead>
         <tbody>
           {rows.map(([label, assumption, format]) => {
-            const isMarketTemplateSeed = ["Beta", "EV / EBITDA", "EV / Revenue"].includes(label);
-            const sourceLabel = isMarketTemplateSeed ? "Template seed" : assumption.source;
-            const sourceNote = isMarketTemplateSeed ? "Manual template seed; not Damodaran live data." : assumption.note;
+            const isTemplateSeed = ["Industry classification", "Beta", "Equity risk premium"].includes(label);
+            const sourceLabel = isTemplateSeed ? "Template seed" : assumption.source;
+            const sourceNote = isTemplateSeed ? "Manual template seed; not Damodaran live data." : assumption.note;
             return (
               <tr key={label} className="border-b border-slate-100 align-top">
                 <td className="p-3 font-semibold text-slate-800">{label}</td>
@@ -260,7 +262,7 @@ function PkdSuggestionPanel({ suggestion, onApply }: { suggestion: PkdIndustrySu
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="font-semibold text-teal-950">{suggestion.message}</p>
-          <p className="mt-1 text-xs text-teal-800">PKD division {suggestion.division} maps to the existing {suggestion.industryTemplateName} industry template. Values remain editable.</p>
+          <p className="mt-1 text-xs text-teal-800">PKD division {suggestion.division} maps to the existing {suggestion.industryTemplateName} industry template. Forecast assumptions remain generated from historical financial statements.</p>
         </div>
         <button className="rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={onApply}>Apply suggested industry template</button>
       </div>
@@ -350,14 +352,14 @@ function CombinedCompanyImportPreview({ preview, currency, onImport }: { preview
           <h3 className="text-sm font-bold uppercase tracking-wide text-slate-600">Generated assumptions</h3>
           {preview.seed ? (
             <div className="mt-3 space-y-2 text-sm">
-              <OutputRow label="Revenue growth" value={pct(preview.seed.revenueCagr)} />
-              <OutputRow label="EBITDA margin" value={pct(preview.seed.ebitdaMargin)} />
-              <OutputRow label="D&A / revenue" value={pct(preview.seed.depreciationPctRevenue)} />
-              <OutputRow label="CAPEX / revenue" value={pct(preview.seed.capexPctRevenue)} />
-              <OutputRow label="NWC / revenue" value={pct(preview.seed.nwcPctRevenue)} />
+              <OutputRow label="Revenue growth" value={`${pct(preview.seed.revenueCagr)} · ${preview.seed.source}`} />
+              <OutputRow label="EBITDA margin" value={`${pct(preview.seed.ebitdaMargin)} · ${preview.seed.source}`} />
+              <OutputRow label="D&A / revenue" value={`${pct(preview.seed.depreciationPctRevenue)} · ${preview.seed.source}`} />
+              <OutputRow label="CAPEX / revenue" value={`${pct(preview.seed.capexPctRevenue)} · ${preview.seed.source}`} />
+              <OutputRow label="NWC / revenue" value={`${pct(preview.seed.nwcPctRevenue)} · ${preview.seed.source}`} />
             </div>
           ) : <p className="mt-3 text-sm text-slate-500">Generated forecast assumptions require imported financials.</p>}
-          {preview.pkdSuggestion ? <div className="mt-3 rounded-xl border border-teal-200 bg-teal-50 p-3"><p className="text-sm font-semibold text-teal-950">{preview.pkdSuggestion.message}</p><p className="mt-1 text-xs text-teal-800">Selected industry template if imported: {preview.pkdSuggestion.industryTemplateName}. Values remain editable.</p></div> : <p className="mt-3 text-sm text-slate-500">No PKD-based industry suggestion available.</p>}
+          {preview.pkdSuggestion ? <div className="mt-3 rounded-xl border border-teal-200 bg-teal-50 p-3"><p className="text-sm font-semibold text-teal-950">{preview.pkdSuggestion.message}</p><p className="mt-1 text-xs text-teal-800">Selected industry template if imported: {preview.pkdSuggestion.industryTemplateName}. Forecast assumptions remain generated from historical financial statements.</p></div> : <p className="mt-3 text-sm text-slate-500">No PKD-based industry suggestion available.</p>}
         </div>
       </div>
 
@@ -1006,20 +1008,9 @@ export default function Home() {
         latestEbitda: typeof latestEbitda?.ebitda?.value === "number" ? latestEbitda.ebitda.value : simpleInput.latestEbitda,
       };
       const baseInput = buildValuationInputFromSimpleMode(nextSimpleInput);
-      const importedYears = importedYearsForHistoricals(companyData);
       const inputWithImportedHistoricals = {
         ...baseInput,
-        historicals: baseInput.historicals.map((historical, index) => {
-          const imported = importedYears[index];
-          return imported ? {
-            ...historical,
-            year: imported.year,
-            revenue: typeof imported.revenue?.value === "number" ? imported.revenue.value : historical.revenue,
-            ebitda: typeof imported.ebitda?.value === "number" ? imported.ebitda.value : historical.ebitda,
-            depreciation: typeof imported.depreciation?.value === "number" ? imported.depreciation.value : historical.depreciation,
-            capex: 0,
-          } : historical;
-        }),
+        historicals: importedYearsToHistoricals(companyData, baseInput),
         profile: { ...baseInput.profile, website: website ? String(website) : baseInput.profile.website, pkdCode: pkdCode ? String(pkdCode) : "", legalForm: legalForm ? String(legalForm) : baseInput.profile.legalForm },
       };
       const seeded = seedForecastFromHistoricals(inputWithImportedHistoricals);
@@ -1620,11 +1611,11 @@ export default function Home() {
             </CardContent>
           </Card>
           <Card>
-            <CardHeader><CardTitle>Industry Template</CardTitle><CardDescription>Optional editable assumption seed. Values are not live market data.</CardDescription></CardHeader>
+            <CardHeader><CardTitle>Industry Template</CardTitle><CardDescription>Optional classification, WACC, ERP, and DLOM seed. Forecast assumptions are generated only from historical financial statements.</CardDescription></CardHeader>
             <CardContent className="space-y-4">
               <PkdSuggestionPanel suggestion={activePkdSuggestion} onApply={() => applySuggestedIndustryTemplate(activePkdSuggestion)} />
               <div className="space-y-1.5"><Label>Industry template selector</Label><select className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 shadow-sm focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-100" value={professionalIndustryTemplate?.name ?? ""} onChange={(event) => update(["profile", "industry"], event.target.value)}><option value="">Select template</option>{industryTemplates.map((template) => <option key={template.name} value={template.name}>{template.name}</option>)}</select></div>
-              {professionalIndustryTemplate ? <><TemplateAssumptionTable template={professionalIndustryTemplate} /><button className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={() => applyTemplateToInput(professionalIndustryTemplate.name)}>Apply template assumptions</button></> : <p className="text-sm text-slate-500">Select an industry template to review suggested assumptions and sources.</p>}
+              {professionalIndustryTemplate ? <><TemplateAssumptionTable template={professionalIndustryTemplate} /><button className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={() => applyTemplateToInput(professionalIndustryTemplate.name)}>Apply template classification, WACC, and DLOM</button></> : <p className="text-sm text-slate-500">Select an industry template to review classification, beta, ERP, DLOM, and source notes.</p>}
             </CardContent>
           </Card>
           <Card>
@@ -1724,7 +1715,7 @@ export default function Home() {
                     ["D&A / revenue", "depreciationPctRevenue"],
                     ["Capex / revenue", "capexPctRevenue"],
                   ].map(([label, key]) => (
-                    <tr key={key} className="border-b border-slate-100"><td className="py-3 font-medium">{label}</td>{input.forecast[key as PercentArrayKey].map((value, index) => <td key={index} className="pr-2"><NumberField label="" value={value} percent onChange={(next) => updateForecastArray(key as PercentArrayKey, index, next)} /></td>)}</tr>
+                    <tr key={key} className="border-b border-slate-100"><td className="py-3 font-medium">{label}{forecastAutoSeeded ? <span className="mt-1 block text-xs font-normal text-slate-500">Generated from historical financial statements</span> : null}</td>{input.forecast[key as PercentArrayKey].map((value, index) => <td key={index} className="pr-2"><NumberField label="" value={value} percent onChange={(next) => updateForecastArray(key as PercentArrayKey, index, next)} /></td>)}</tr>
                   ))}
                 </tbody>
               </table>
@@ -1741,6 +1732,7 @@ export default function Home() {
               <div className="grid gap-3 sm:grid-cols-5">
                 {input.workingCapital.nwcPctRevenue.map((value, index) => <NumberField key={index} label={`${model.forecastYears[index].year}`} value={value} percent onChange={(next) => updateWorkingCapital(index, next)} />)}
               </div>
+              {forecastAutoSeeded ? <p className="mt-3 text-xs text-slate-500">NWC / revenue source: Generated from historical financial statements.</p> : null}
               <ResponsiveContainer width="100%" height={240} className="mt-6">
                 <AreaChart data={model.forecastYears}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="year" /><YAxis /><Tooltip formatter={(value) => chartMoney(value, input.profile.currency)} /><Area dataKey="freeCashFlow" name="Free Cash Flow" fill="#0f766e" stroke="#0f766e" fillOpacity={0.18} /></AreaChart>
               </ResponsiveContainer>
