@@ -196,25 +196,6 @@ function DataPointRow({ label, dataPoint, formatter = String }: { label: string;
   );
 }
 
-function KrsProfilePreview({ profile, onApply }: { profile: CompanyProfileData; onApply: () => void }) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-      <DataPointRow label="Company name" dataPoint={profile.companyName} />
-      <DataPointRow label="KRS" dataPoint={profile.krs} />
-      <DataPointRow label="NIP" dataPoint={profile.nip} />
-      <DataPointRow label="REGON" dataPoint={profile.regon} />
-      <DataPointRow label="PKD" dataPoint={profile.pkdCode} />
-      <DataPointRow label="Address" dataPoint={profile.address} />
-      <DataPointRow label="Legal form" dataPoint={profile.legalForm} />
-      <DataPointRow label="Share capital" dataPoint={profile.shareCapital} />
-      {profile.registrationStatus ? <DataPointRow label="Registration status" dataPoint={profile.registrationStatus} /> : null}
-      {profile.warnings.length > 0 ? <p className="mt-3 text-xs text-amber-700">{profile.warnings.join(" ")}</p> : null}
-      <p className="mt-3 text-xs text-slate-500">Public KRS API provides registry data only. Financial statement data still requires manual input or an external financial-data provider.</p>
-      <button className="mt-3 rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={onApply}>Apply KRS profile</button>
-    </div>
-  );
-}
-
 function TemplateAssumptionTable({ template }: { template: IndustryTemplate }) {
   const rows = [
     ["Industry classification", { ...template.assumptions.beta, value: template.name }, "text"],
@@ -253,7 +234,7 @@ function TemplateAssumptionTable({ template }: { template: IndustryTemplate }) {
   );
 }
 
-function PkdSuggestionPanel({ suggestion, onApply }: { suggestion: PkdIndustrySuggestion | null; onApply: () => void }) {
+function PkdSuggestionPanel({ suggestion }: { suggestion: PkdIndustrySuggestion | null }) {
   if (!suggestion) {
     return null;
   }
@@ -263,41 +244,15 @@ function PkdSuggestionPanel({ suggestion, onApply }: { suggestion: PkdIndustrySu
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="font-semibold text-teal-950">{suggestion.message}</p>
-          <p className="mt-1 text-xs text-teal-800">PKD division {suggestion.division} maps to the existing {suggestion.industryTemplateName} industry template. Forecast assumptions remain generated from historical financial statements.</p>
+          <p className="mt-1 text-xs text-teal-800">PKD division {suggestion.division} maps to the existing {suggestion.industryTemplateName} industry template. The template is applied automatically; forecast assumptions remain generated from historical financial statements.</p>
         </div>
-        <button className="rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={onApply}>Apply suggested industry template</button>
+        <Badge className="border-teal-200 bg-white text-teal-800">Applied automatically</Badge>
       </div>
     </div>
   );
 }
 
-function BizRaportFinancialPreview({ data, currency, onApply }: { data: CompanyFinancialData; currency: string; onApply: () => void }) {
-  const latest = data.years[0];
-
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-      <DataPointRow label="Company name" dataPoint={data.companyName} />
-      <DataPointRow label="Website" dataPoint={data.website} />
-      <DataPointRow label="PKD code" dataPoint={data.pkdCode} />
-      <DataPointRow label="PKD description" dataPoint={data.pkdDescription} />
-      <DataPointRow label="Legal form" dataPoint={data.legalForm} />
-      {latest ? <DataPointRow label="Latest year" dataPoint={{ value: latest.year, source: data.source, sourceUrl: data.sourceUrl, sourceDate: data.sourceDate, fetchedAt: data.fetchedAt, confidence: "high", isUserOverridden: false }} formatter={(value) => String(value)} /> : null}
-      <DataPointRow label="Revenue" dataPoint={latest?.revenue} formatter={(value) => money(Number(value), currency)} />
-      <DataPointRow label="EBITDA" dataPoint={latest?.ebitda} formatter={(value) => money(Number(value), currency)} />
-      <DataPointRow label="EBIT" dataPoint={latest?.ebit} formatter={(value) => money(Number(value), currency)} />
-      <DataPointRow label="Net income" dataPoint={latest?.netIncome} formatter={(value) => money(Number(value), currency)} />
-      <DataPointRow label="Assets" dataPoint={latest?.assets} formatter={(value) => money(Number(value), currency)} />
-      <DataPointRow label="Equity" dataPoint={latest?.equity} formatter={(value) => money(Number(value), currency)} />
-      <DataPointRow label="Liabilities" dataPoint={latest?.liabilities} formatter={(value) => money(Number(value), currency)} />
-      <DataPointRow label="Employees" dataPoint={latest?.employees} formatter={(value) => Number(value).toFixed(0)} />
-      {data.warnings.length > 0 ? <p className="mt-3 text-xs text-amber-700">{data.warnings.join(" ")}</p> : null}
-      {data.notes.length > 0 ? <p className="mt-2 text-xs text-slate-500">{data.notes.join(" ")}</p> : null}
-      <button className="mt-3 rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={onApply}>Apply imported data</button>
-    </div>
-  );
-}
-
-function CombinedCompanyImportPreview({ preview, currency, onImport }: { preview: CombinedCompanyImportPreviewData; currency: string; onImport: () => void }) {
+function CombinedCompanyImportPreview({ preview, currency }: { preview: CombinedCompanyImportPreviewData; currency: string }) {
   const profile = preview.krsProfile;
   const data = preview.companyData;
   const latest = data?.years[0];
@@ -308,10 +263,10 @@ function CombinedCompanyImportPreview({ preview, currency, onImport }: { preview
     <div className="space-y-4 rounded-2xl border border-teal-200 bg-teal-50/60 p-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm font-bold text-slate-950">Combined import preview</p>
-          <p className="text-xs text-slate-600">Review registry profile, financial data, PKD template suggestion, and generated assumptions before importing once.</p>
+          <p className="text-sm font-bold text-slate-950">Imported company data</p>
+          <p className="text-xs text-slate-600">Registry profile, BizRaport financials, PKD template, forecast seed, and market sources are applied automatically. You can still edit every assumption below.</p>
         </div>
-        <button className="rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={onImport}>Import data</button>
+        <Badge className="border-teal-200 bg-white text-teal-800">Ready for valuation</Badge>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -375,7 +330,7 @@ function ImportedDataSummaryCard({ summary }: { summary: ImportedDataSummary }) 
     <Card>
       <CardHeader>
         <CardTitle>Imported data summary</CardTitle>
-        <CardDescription>Company data imported in the wizard. Fields remain editable and the full import workflow is available as an advanced action.</CardDescription>
+        <CardDescription>Company data imported in the setup wizard. Fields remain editable; the model recalculates as assumptions change.</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3 text-sm md:grid-cols-2 xl:grid-cols-3">
         <OutputRow label="Source" value={summary.sources.join(" / ") || "Manual"} />
@@ -754,6 +709,12 @@ export default function Home() {
     }
   }
 
+  function refreshCoreMarketInputs(country = input.profile.country, industry = input.profile.industry) {
+    void fetchRiskFreeRateFromFred(country);
+    void fetchErpFromDamodaranSeed(country);
+    void fetchBetaFromDamodaranSeed(industry);
+  }
+
   async function fetchCombinedCompanyData() {
     const selectedKrs = cleanBizRaportKrs(wizardInput.registrationNumber);
     if (!isKrs(selectedKrs)) {
@@ -790,19 +751,20 @@ export default function Home() {
       ...(fetchedCompanyData ? ["BizRaport financial data fetched."] : []),
       ...(imported.seed?.notes ?? []),
     ];
+    const preview = { krsProfile: fetchedKrsProfile, companyData: fetchedCompanyData, pkdSuggestion: imported.pkdSuggestion, seed: imported.seed, notes, warnings };
     setKrsProfile(fetchedKrsProfile);
     setCompanyData(fetchedCompanyData);
-    setCombinedImportPreview({ krsProfile: fetchedKrsProfile, companyData: fetchedCompanyData, pkdSuggestion: imported.pkdSuggestion, seed: imported.seed, notes, warnings });
-    setCombinedImportStatus("Company data fetched. Review the combined preview, then import once.");
+    setCombinedImportPreview(preview);
+    importCombinedCompanyData(preview);
   }
 
-  function importCombinedCompanyData() {
-    if (!combinedImportPreview?.krsProfile && !combinedImportPreview?.companyData) {
+  function importCombinedCompanyData(preview: CombinedCompanyImportPreviewData | null = combinedImportPreview) {
+    if (!preview || (!preview.krsProfile && !preview.companyData)) {
       setCombinedImportStatus("Fetch company data before importing.");
       return;
     }
 
-    const imported = buildImportedValuationInput(combinedImportPreview.krsProfile, combinedImportPreview.companyData);
+    const imported = buildImportedValuationInput(preview.krsProfile, preview.companyData);
     setInput(imported.input);
     setSimpleInput(imported.simpleInput);
     setWizardInput((current) => ({
@@ -813,12 +775,10 @@ export default function Home() {
     }));
     setForecastSeedNotes(imported.seed?.notes ?? []);
     setForecastAutoSeeded(Boolean(imported.seed));
-    setImportedDataSummary(buildImportedDataSummary(combinedImportPreview.krsProfile, combinedImportPreview.companyData, imported.pkdSuggestion, Boolean(imported.seed)));
-    void fetchRiskFreeRateFromFred(imported.input.profile.country);
-    void fetchErpFromDamodaranSeed(imported.input.profile.country);
-    void fetchBetaFromDamodaranSeed(imported.input.profile.industry);
+    setImportedDataSummary(buildImportedDataSummary(preview.krsProfile, preview.companyData, imported.pkdSuggestion, Boolean(imported.seed)));
+    refreshCoreMarketInputs(imported.input.profile.country, imported.input.profile.industry);
     setWizardImportApplied(true);
-    setCombinedImportStatus("Imported company data. Choose a valuation type to continue.");
+    setCombinedImportStatus("Company data applied automatically. Choose a valuation type to continue.");
     setWizardStep(2);
   }
 
@@ -1126,6 +1086,7 @@ export default function Home() {
       setSimpleInput(simpleInputFromValuationInput(nextInput));
       setInput(nextInput);
       setMode("simple");
+      refreshCoreMarketInputs(nextInput.profile.country, nextInput.profile.industry);
     } else {
       const manualSimpleInput: SimpleModeInput = {
         companyName: wizardInput.companyName,
@@ -1155,6 +1116,7 @@ export default function Home() {
       setInput(nextInput);
       setSimpleInput(simpleInputFromValuationInput(nextInput));
       setMode("professional");
+      refreshCoreMarketInputs(nextInput.profile.country, nextInput.profile.industry);
     }
     setWorkspaceStarted(true);
   }
@@ -1334,7 +1296,6 @@ export default function Home() {
       date: riskFreeRateSource?.value !== null && riskFreeRateSource?.value !== undefined ? riskFreeRateSource.observationDate ?? riskFreeRateSource.fetchedAt : "Manual",
       status: riskFreeRateSource?.value !== null && riskFreeRateSource?.value !== undefined ? riskFreeRateSource.status : "manual",
       confidence: riskFreeRateSource?.value !== null && riskFreeRateSource?.value !== undefined ? riskFreeRateSource.confidence : "low",
-      action: <button className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-teal-600 hover:text-teal-800" onClick={() => fetchRiskFreeRateFromFred(input.profile.country, true)}>Refresh FRED</button>,
     },
     {
       input: "Equity risk premium",
@@ -1343,7 +1304,6 @@ export default function Home() {
       date: erpSource?.value !== null && erpSource?.value !== undefined ? erpSource.sourceDate : "Manual",
       status: erpSource?.value !== null && erpSource?.value !== undefined ? erpSource.refreshStatus : "manual",
       confidence: erpSource?.value !== null && erpSource?.value !== undefined ? erpSource.confidence : "low",
-      action: <button className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-teal-600 hover:text-teal-800" onClick={() => fetchErpFromDamodaranSeed(input.profile.country)}>Refresh ERP</button>,
     },
     {
       input: "Beta",
@@ -1352,7 +1312,6 @@ export default function Home() {
       date: betaSource?.value !== null && betaSource?.value !== undefined ? betaSource.sourceDate : "Manual",
       status: betaSource?.value !== null && betaSource?.value !== undefined ? betaSource.refreshStatus : "manual",
       confidence: betaSource?.value !== null && betaSource?.value !== undefined ? betaSource.confidence : "low",
-      action: <button className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-teal-600 hover:text-teal-800" onClick={() => fetchBetaFromDamodaranSeed(input.profile.industry)}>Refresh beta</button>,
     },
   ];
 
@@ -1378,7 +1337,7 @@ export default function Home() {
           <Card>
             <CardHeader>
               <CardTitle>{wizardStep === 1 ? "Step 1: Find the company" : wizardStep === 2 ? "Step 2: Choose the workflow" : "Step 3: Enter core numbers"}</CardTitle>
-              <CardDescription>{wizardStep === 1 ? "Use one KRS lookup to fetch Public KRS profile data and BizRaport financial ranges where available." : wizardStep === 2 ? "Choose the quick owner estimate or the full professional workbench." : "Use manual inputs only when imported financials are unavailable or skipped."}</CardDescription>
+              <CardDescription>{wizardStep === 1 ? "Use one KRS lookup to fetch and apply Public KRS, BizRaport, PKD template, forecast seed, and market sources." : wizardStep === 2 ? "Choose the quick owner estimate or the full professional workbench." : "Use manual inputs only when imported financials are unavailable or skipped."}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               {wizardStep === 1 && (
@@ -1394,14 +1353,14 @@ export default function Home() {
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <p className="text-sm font-bold text-slate-950">One-click company lookup</p>
-                        <p className="mt-1 text-sm text-slate-600">Fetch registry details, BizRaport financial ranges, PKD industry suggestion, and initial forecast assumptions in one place.</p>
+                        <p className="mt-1 text-sm text-slate-600">Fetch and apply registry details, BizRaport financial ranges, PKD industry suggestion, initial forecast assumptions, and WACC market sources in one step.</p>
                       </div>
-                      <button className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={fetchCombinedCompanyData}>Fetch KRS + BizRaport</button>
+                      <button className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={fetchCombinedCompanyData}>Fetch and build model</button>
                     </div>
                     {combinedImportStatus ? <p className="mt-3 text-sm text-slate-600">{combinedImportStatus}</p> : null}
                   </div>
 
-                  {combinedImportPreview ? <CombinedCompanyImportPreview preview={combinedImportPreview} currency={wizardInput.currency} onImport={importCombinedCompanyData} /> : null}
+                  {combinedImportPreview ? <CombinedCompanyImportPreview preview={combinedImportPreview} currency={wizardInput.currency} /> : null}
                 </div>
               )}
 
@@ -1418,7 +1377,7 @@ export default function Home() {
                       <p className="mt-2 text-sm leading-6 text-slate-600">Detailed workflow for historicals, normalization, forecast, WACC, DCF, diagnostics, and exports.</p>
                     </button>
                   </div>
-                  {wizardImportApplied && companyData?.years.length ? <Badge className="border-teal-200 bg-teal-50 text-teal-800">Financials imported — Step 3 will be skipped</Badge> : <p className="text-sm text-slate-500">No imported financial years are available yet, so the wizard will ask for a manual financial starting point.</p>}
+                  {wizardImportApplied && companyData?.years.length ? <Badge className="border-teal-200 bg-teal-50 text-teal-800">Model prefilled from KRS + BizRaport - Step 3 will be skipped</Badge> : <p className="text-sm text-slate-500">No imported financial years are available yet, so the wizard will ask for a manual financial starting point.</p>}
                 </div>
               )}
 
@@ -1497,7 +1456,7 @@ export default function Home() {
                 <div className="space-y-1.5"><Label>Registration Number</Label><Input value={simpleInput.registrationNumber} onChange={(event) => updateSimple("registrationNumber", event.target.value)} /></div>
                 {importedDataSummary ? <div className="md:col-span-2"><ImportedDataSummaryCard summary={importedDataSummary} /></div> : null}
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 md:col-span-2">Company import now lives in the setup wizard. Use "Start new valuation" if you want to run a fresh KRS + BizRaport lookup.</div>
-                <div className="md:col-span-2"><PkdSuggestionPanel suggestion={activePkdSuggestion} onApply={() => applySuggestedIndustryTemplate(activePkdSuggestion)} /></div>
+                <div className="md:col-span-2"><PkdSuggestionPanel suggestion={activePkdSuggestion} /></div>
                 {forecastAutoSeeded ? <div className="md:col-span-2"><Badge className="border-teal-200 bg-teal-50 text-teal-800">Auto-generated from historical financials</Badge>{forecastSeedNotes.map((note) => <p key={note} className="mt-2 text-xs text-slate-500">{note}</p>)}</div> : null}
                 <NumberField label="Latest revenue" value={simpleInput.latestRevenue} onChange={(value) => updateSimple("latestRevenue", value)} />
                 <NumberField label="Latest EBITDA" value={simpleInput.latestEbitda} onChange={(value) => updateSimple("latestEbitda", value)} />
@@ -1603,17 +1562,17 @@ export default function Home() {
           <Card>
             <CardHeader><CardTitle>Industry Template</CardTitle><CardDescription>Optional classification, WACC, ERP, and DLOM seed. Forecast assumptions are generated only from historical financial statements.</CardDescription></CardHeader>
             <CardContent className="space-y-4">
-              <PkdSuggestionPanel suggestion={activePkdSuggestion} onApply={() => applySuggestedIndustryTemplate(activePkdSuggestion)} />
-              <div className="space-y-1.5"><Label>Industry template selector</Label><select className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 shadow-sm focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-100" value={professionalIndustryTemplate?.name ?? ""} onChange={(event) => update(["profile", "industry"], event.target.value)}><option value="">Select template</option>{industryTemplates.map((template) => <option key={template.name} value={template.name}>{template.name}</option>)}</select></div>
-              {professionalIndustryTemplate ? <><TemplateAssumptionTable template={professionalIndustryTemplate} /><button className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={() => applyTemplateToInput(professionalIndustryTemplate.name)}>Apply template classification, WACC, and DLOM</button></> : <p className="text-sm text-slate-500">Select an industry template to review classification, beta, ERP, DLOM, and source notes.</p>}
+              <PkdSuggestionPanel suggestion={activePkdSuggestion} />
+              <div className="space-y-1.5"><Label>Industry template selector</Label><select className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 shadow-sm focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-100" value={professionalIndustryTemplate?.name ?? ""} onChange={(event) => event.target.value ? applyTemplateToInput(event.target.value) : update(["profile", "industry"], "")}><option value="">Select template</option>{industryTemplates.map((template) => <option key={template.name} value={template.name}>{template.name}</option>)}</select><p className="text-xs text-slate-500">Selecting a template immediately updates classification, WACC seed assumptions, and DLOM. You can still edit the values manually.</p></div>
+              {professionalIndustryTemplate ? <TemplateAssumptionTable template={professionalIndustryTemplate} /> : <p className="text-sm text-slate-500">Select an industry template to review classification, beta, ERP, DLOM, and source notes.</p>}
             </CardContent>
           </Card>
           <Card>
-            <CardHeader><CardTitle>Market Data Sources</CardTitle><CardDescription>Active WACC market inputs. Sourced values replace manual placeholders when available.</CardDescription></CardHeader>
+            <CardHeader><CardTitle>Market Data Sources</CardTitle><CardDescription>WACC market inputs update automatically after company import or valuation start. Manual edits remain editable in WACC.</CardDescription></CardHeader>
             <CardContent className="space-y-5">
               <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
                 <table className="w-full min-w-[760px] text-sm">
-                  <thead><tr className="border-b bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500"><th className="p-3">Input</th><th className="p-3 text-right">Current value</th><th className="p-3">Source</th><th className="p-3">Source date / observation date</th><th className="p-3">Status</th><th className="p-3">Confidence</th><th className="p-3">Refresh action</th></tr></thead>
+                  <thead><tr className="border-b bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500"><th className="p-3">Input</th><th className="p-3 text-right">Current value</th><th className="p-3">Source</th><th className="p-3">Source date / observation date</th><th className="p-3">Status</th><th className="p-3">Confidence</th></tr></thead>
                   <tbody>
                     {marketDataSourceRows.map((row) => (
                       <tr key={row.input} className="border-b border-slate-100 align-top">
@@ -1623,7 +1582,6 @@ export default function Home() {
                         <td className="p-3 text-slate-600">{row.date}</td>
                         <td className="p-3 text-slate-700">{row.status}</td>
                         <td className="p-3"><Badge className={row.confidence === "low" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-blue-200 bg-blue-50 text-blue-800"}>{row.confidence}</Badge></td>
-                        <td className="p-3">{row.action}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1637,7 +1595,7 @@ export default function Home() {
                   <OutputRow label="EV / Revenue" value={multiple(input.marketMultiples.evRevenueMultiple)} />
                 </div>
               </div>
-              <button className="rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={refreshMarketDataPlaceholder}>Sync displayed source summary</button>
+              <div className="rounded-2xl border border-teal-200 bg-teal-50 p-4 text-sm text-teal-900">Source summary is synced automatically when the model starts. Edit WACC assumptions directly if you want to override sourced inputs.</div>
               {marketData?.notes.length ? <p className="text-xs text-slate-500">{marketData.notes.join(" ")}</p> : null}
               <p className="text-xs text-slate-500">Configured market source adapters: {marketSources.map((source) => source.name).join(", ")}</p>
             </CardContent>
@@ -1742,7 +1700,7 @@ export default function Home() {
                     <p className="font-semibold text-slate-950">Risk-free rate source</p>
                     <p className="mt-1 text-slate-600">Current value: {pct(input.wacc.riskFreeRate)}</p>
                   </div>
-                  <button className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={() => fetchRiskFreeRateFromFred(input.profile.country, true)}>Refresh risk-free rate from FRED</button>
+                  <Badge className="border-teal-200 bg-white text-teal-800">Auto-updated</Badge>
                 </div>
                 {riskFreeRateSource ? (
                   <div className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
@@ -1751,7 +1709,7 @@ export default function Home() {
                     <span><strong>Observation date:</strong> {riskFreeRateSource.observationDate ?? "Unavailable"}</span>
                     <span><strong>Fetched at:</strong> {riskFreeRateSource.fetchedAt}</span>
                     <span><strong>Confidence:</strong> {riskFreeRateSource.confidence}</span>
-                    <span><strong>Refresh status:</strong> {riskFreeRateSource.status}</span>
+                    <span><strong>Source status:</strong> {riskFreeRateSource.status}</span>
                   </div>
                 ) : <p className="mt-3 text-xs text-slate-500">No live FRED risk-free rate has been fetched yet.</p>}
                 {riskFreeRateStatus ? <p className="mt-3 text-xs text-slate-500">{riskFreeRateStatus}{riskFreeRateManuallyEdited && riskFreeRateSource?.value !== null ? " Manual risk-free rate edits are preserved unless you refresh explicitly." : ""}</p> : null}
@@ -1763,7 +1721,7 @@ export default function Home() {
                     <p className="font-semibold text-slate-950">Equity risk premium source</p>
                     <p className="mt-1 text-slate-600">Current ERP: {pct(input.wacc.equityRiskPremium)}</p>
                   </div>
-                  <button className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={() => fetchErpFromDamodaranSeed(input.profile.country)}>Refresh ERP from Damodaran seed</button>
+                  <Badge className="border-teal-200 bg-white text-teal-800">Auto-updated</Badge>
                 </div>
                 {erpSource ? (
                   <div className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
@@ -1773,7 +1731,7 @@ export default function Home() {
                     <span><strong>Source:</strong> {erpSource.source}</span>
                     <span><strong>Source date:</strong> {erpSource.sourceDate}</span>
                     <span><strong>Dataset age:</strong> {erpSource.datasetAgeDays} days</span>
-                    <span><strong>Refresh status:</strong> {erpSource.refreshStatus}</span>
+                    <span><strong>Source status:</strong> {erpSource.refreshStatus}</span>
                     <span><strong>Confidence:</strong> {erpSource.confidence}</span>
                   </div>
                 ) : <p className="mt-3 text-xs text-slate-500">No Damodaran ERP seed has been loaded yet.</p>}
@@ -1787,7 +1745,7 @@ export default function Home() {
                     <p className="font-semibold text-slate-950">Beta source</p>
                     <p className="mt-1 text-slate-600">Current beta: {input.wacc.beta.toFixed(2)}</p>
                   </div>
-                  <button className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={() => fetchBetaFromDamodaranSeed(input.profile.industry)}>Refresh beta from Damodaran seed</button>
+                  <Badge className="border-teal-200 bg-white text-teal-800">Auto-updated</Badge>
                 </div>
                 {betaSource ? (
                   <div className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
@@ -1798,7 +1756,7 @@ export default function Home() {
                     <span><strong>Source:</strong> {betaSource.source}</span>
                     <span><strong>Source date:</strong> {betaSource.sourceDate}</span>
                     <span><strong>Dataset age:</strong> {betaSource.datasetAgeDays} days</span>
-                    <span><strong>Refresh status:</strong> {betaSource.refreshStatus}</span>
+                    <span><strong>Source status:</strong> {betaSource.refreshStatus}</span>
                     <span><strong>Confidence:</strong> {betaSource.confidence}</span>
                   </div>
                 ) : <p className="mt-3 text-xs text-slate-500">No Damodaran beta seed has been loaded yet.</p>}
