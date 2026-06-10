@@ -9,6 +9,7 @@ This note tracks the first implementation pass that turns the SME valuation mode
 - Added terminal value cross-checks: implied exit multiple from Gordon Growth, implied perpetual growth from exit multiple, method gap, and terminal spread.
 - Expanded the report export object with banker-grade output: executive summary text, valuation football field, assumptions book, audit trail, open diligence items, and readiness summary.
 - Expanded CSV export to include readiness summary, valuation football field, and assumptions book before the existing model tables.
+- Simplified the initial valuation workflow UI so company lookup is the single import entry point before users choose quick estimate or full workbench.
 
 ## Next Implementation Layers
 
