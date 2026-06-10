@@ -1,6 +1,6 @@
 import { calculateEquityBridge, calculatePrivateCompanyDiscounts } from "./bridge";
 import { calculateDcf, type DcfYear } from "./dcf";
-import { calculateValuationDiagnostics, type DiagnosticsSummary } from "./diagnostics";
+import { calculateValuationDiagnostics, type DiagnosticsSummary, type ReadinessAssessment } from "./diagnostics";
 import { forecastFinancials, normalizeLatestEbitda, sumNormalizationAdjustments, type ForecastYear } from "./forecast";
 import {
   calculateEvToEquityBridgeOutput,
@@ -35,6 +35,37 @@ export type ValuationConclusion = {
   summaryText: string;
 };
 
+export type ValuationFootballFieldItem = {
+  method: "DCF scenarios" | "Market approach" | "Blended indication";
+  low: number;
+  midpoint: number;
+  high: number;
+  basis: string;
+};
+
+export type AssumptionsBookItem = {
+  section: string;
+  assumption: string;
+  value: string | number;
+  source: "user_input" | "model_calculation" | "template_or_import";
+  rationale: string;
+};
+
+export type AuditTrailEvent = {
+  timestamp: string;
+  event: string;
+  detail: string;
+};
+
+export type BankerGradeOutput = {
+  readiness: ReadinessAssessment;
+  executiveSummaryText: string;
+  footballField: ValuationFootballFieldItem[];
+  assumptionsBook: AssumptionsBookItem[];
+  auditTrail: AuditTrailEvent[];
+  openDiligenceItems: string[];
+};
+
 export type ValuationReport = {
   generatedAt: string;
   companyProfile: CompanyProfile;
@@ -52,6 +83,7 @@ export type ValuationReport = {
   marketValuation: MarketValuationResult;
   valuationConclusion: ValuationConclusion;
   executiveSummary: ExecutiveSummary;
+  bankerGradeOutput: BankerGradeOutput;
 };
 
 function safePercent(value: number): string {
@@ -84,6 +116,103 @@ function findScenario(scenarios: ScenarioAnalysisResult[], name: ScenarioAnalysi
   return scenario;
 }
 
+function buildFootballField(
+  scenarios: ScenarioAnalysisResult[],
+  marketValuation: MarketValuationResult,
+): ValuationFootballFieldItem[] {
+  const bear = findScenario(scenarios, "Bear");
+  const base = findScenario(scenarios, "Base");
+  const bull = findScenario(scenarios, "Bull");
+  const marketEquity = marketValuation.marketEquityBridge.equityValue;
+  const blendedEquity = marketValuation.blendedValuation.blendedEquityValue;
+
+  return [
+    {
+      method: "DCF scenarios",
+      low: bear.adjustedEquityValue,
+      midpoint: base.adjustedEquityValue,
+      high: bull.adjustedEquityValue,
+      basis: "Bear/Base/Bull adjusted equity values from the DCF scenario engine.",
+    },
+    {
+      method: "Market approach",
+      low: marketEquity * 0.9,
+      midpoint: marketEquity,
+      high: marketEquity * 1.1,
+      basis: "Manual benchmark EV/EBITDA and EV/Revenue multiples with a +/-10% screening range.",
+    },
+    {
+      method: "Blended indication",
+      low: blendedEquity * 0.9,
+      midpoint: blendedEquity,
+      high: blendedEquity * 1.1,
+      basis: "DCF and market approach weighted by the selected DCF blend weighting.",
+    },
+  ];
+}
+
+function buildAssumptionsBook(input: ValuationInput, terminalValueBreakdown: TerminalValueBreakdown): AssumptionsBookItem[] {
+  return [
+    { section: "Company", assumption: "Valuation date", value: input.profile.valuationDate, source: "user_input", rationale: "Controls historical period labels, market-data freshness, and export timestamp context." },
+    { section: "Company", assumption: "Industry", value: input.profile.industry, source: "user_input", rationale: "Used for template selection, beta context, and market comparability." },
+    { section: "Forecast", assumption: "Year 1 revenue growth", value: safePercent(input.forecast.revenueGrowth[0]), source: "user_input", rationale: "Primary near-term revenue driver in the explicit forecast." },
+    { section: "Forecast", assumption: "Year 5 EBITDA margin", value: safePercent(input.forecast.ebitdaMargin[4]), source: "user_input", rationale: "Key steady-state operating profitability assumption before terminal value." },
+    { section: "Forecast", assumption: "Tax rate", value: safePercent(input.forecast.taxRate), source: "user_input", rationale: "Applied to EBIT to calculate NOPAT and FCFF." },
+    { section: "WACC", assumption: "Risk-free rate", value: safePercent(input.wacc.riskFreeRate), source: "user_input", rationale: "Base rate for cost of equity and discount-rate build." },
+    { section: "WACC", assumption: "Equity risk premium", value: safePercent(input.wacc.equityRiskPremium), source: "user_input", rationale: "Market equity return premium used in CAPM-style cost of equity." },
+    { section: "WACC", assumption: "Beta", value: input.wacc.beta, source: "user_input", rationale: "Business risk input for cost of equity." },
+    { section: "WACC", assumption: "Size premium", value: safePercent(input.wacc.sizePremium), source: "user_input", rationale: "Private SME size risk adjustment." },
+    { section: "WACC", assumption: "Company-specific risk premium", value: safePercent(input.wacc.companySpecificRiskPremium), source: "user_input", rationale: "Idiosyncratic risk adjustment that should be checked for overlap with equity discounts." },
+    { section: "Terminal value", assumption: "Selected method", value: terminalValueBreakdown.method, source: "user_input", rationale: "Determines whether Gordon Growth or exit multiple drives enterprise value." },
+    { section: "Terminal value", assumption: "Terminal spread", value: safePercent(terminalValueBreakdown.terminalSpread), source: "model_calculation", rationale: "WACC less perpetual growth; narrow spreads are a key DCF risk." },
+    { section: "Terminal value", assumption: "Implied exit multiple from Gordon Growth", value: safeMultiple(terminalValueBreakdown.impliedExitMultipleFromGordon), source: "model_calculation", rationale: "Cross-checks perpetual-growth output against market multiple intuition." },
+    { section: "Terminal value", assumption: "Implied perpetual growth from exit multiple", value: safePercent(terminalValueBreakdown.impliedPerpetualGrowthFromExitMultiple), source: "model_calculation", rationale: "Cross-checks exit-multiple output against long-term growth logic." },
+    { section: "Bridge", assumption: "Cash", value: input.bridge.cash, source: "user_input", rationale: "Cash-like item added from EV to equity value." },
+    { section: "Bridge", assumption: "Debt and debt-like items", value: input.bridge.debt + input.bridge.leasing + input.bridge.otherDebtLikeItems, source: "user_input", rationale: "Debt-like items deducted from enterprise value." },
+    { section: "Discounts", assumption: "DLOM", value: safePercent(input.discounts.lackOfMarketability), source: "user_input", rationale: "Equity-level discount for lack of marketability." },
+    { section: "Market approach", assumption: "Benchmark EV/EBITDA", value: safeMultiple(input.marketMultiples.evEbitdaMultiple), source: "user_input", rationale: "Manual market cross-check multiple." },
+    { section: "Market approach", assumption: "DCF blend weighting", value: safePercent(input.marketMultiples.dcfWeight), source: "user_input", rationale: "Controls weighting between income approach and market approach indications." },
+  ];
+}
+
+function buildAuditTrail(input: ValuationInput, generatedAt: string): AuditTrailEvent[] {
+  return [
+    { timestamp: generatedAt, event: "Valuation report generated", detail: `${input.profile.companyName || "Unnamed company"} valuation exported in ${input.profile.currency}.` },
+    { timestamp: generatedAt, event: "Model engine", detail: "FCFF DCF, WACC, EV-to-equity bridge, private-company discounts, scenarios, sensitivity, diagnostics, and market approach were recalculated from current inputs." },
+    { timestamp: generatedAt, event: "Data posture", detail: "Audit trail records generated output state only; full per-assumption edit history is a recommended next implementation layer." },
+  ];
+}
+
+function buildBankerGradeOutput(
+  input: ValuationInput,
+  valuationConclusion: ValuationConclusion,
+  diagnosticsSummary: DiagnosticsSummary,
+  scenarios: ScenarioAnalysisResult[],
+  marketValuation: MarketValuationResult,
+  terminalValueBreakdown: TerminalValueBreakdown,
+  generatedAt: string,
+): BankerGradeOutput {
+  const footballField = buildFootballField(scenarios, marketValuation);
+  const assumptionsBook = buildAssumptionsBook(input, terminalValueBreakdown);
+  const openDiligenceItems = diagnosticsSummary.readiness.nextActions.length > 0
+    ? diagnosticsSummary.readiness.nextActions
+    : ["Refresh source support for market multiples, WACC inputs, bridge items, and private-company discounts before external use."];
+  const executiveSummaryText = [
+    valuationConclusion.summaryText,
+    `Readiness: ${diagnosticsSummary.readiness.posture}. ${diagnosticsSummary.readiness.headline}`,
+    `Football field range: ${safeMoney(Math.min(...footballField.map((item) => item.low)), input.profile.currency)} to ${safeMoney(Math.max(...footballField.map((item) => item.high)), input.profile.currency)} across DCF scenarios, market approach, and blended indication.`,
+  ].join("\n\n");
+
+  return {
+    readiness: diagnosticsSummary.readiness,
+    executiveSummaryText,
+    footballField,
+    assumptionsBook,
+    auditTrail: buildAuditTrail(input, generatedAt),
+    openDiligenceItems,
+  };
+}
+
 export function buildValuationConclusion(
   input: ValuationInput,
   executiveSummary: ExecutiveSummary,
@@ -99,9 +228,10 @@ export function buildValuationConclusion(
     `Base adjusted equity value of ${safeMoney(base.adjustedEquityValue, input.profile.currency)} reflects a WACC of ${safePercent(executiveSummary.impliedWacc)} and terminal growth of ${safePercent(executiveSummary.terminalGrowth)}.`,
     `Terminal value represents ${safePercent(executiveSummary.terminalValueContribution)} of enterprise value.`,
     `Enterprise value implies ${safeMultiple(executiveSummary.evToNormalizedEbitda)} normalized EBITDA.`,
+    `Readiness posture is ${diagnostics.readiness.posture}: ${diagnostics.readiness.headline}`,
     ...(marketValuation ? [`Weighted market enterprise value is ${safeMoney(marketValuation.weightedMarketEnterpriseValue, input.profile.currency)}, implying a DCF / market EV difference of ${safePercent(marketValuation.comparison.enterpriseValueDifferencePct)}.`] : []),
   ];
-  const methodologyNote = "Valuation is based on an unlevered FCFF DCF, WACC discounting, selected terminal value method, EV-to-equity bridge, and sequential private-company equity discounts. Valuation uses server-side public/company/market data integrations where configured; all assumptions remain editable and export is local.";
+  const methodologyNote = "Valuation is based on an unlevered FCFF DCF, WACC discounting, selected terminal value method, EV-to-equity bridge, sequential private-company equity discounts, market-multiple cross-checks, readiness diagnostics, and exportable banker-grade report objects.";
   const summaryText = [
     `${input.profile.companyName} valuation conclusion`,
     `Base adjusted equity value: ${safeMoney(base.adjustedEquityValue, input.profile.currency)}.`,
@@ -123,6 +253,7 @@ export function buildValuationConclusion(
 }
 
 export function buildValuationReport(input: ValuationInput): ValuationReport {
+  const generatedAt = new Date().toISOString();
   const forecastTable = forecastFinancials(input.historicals, input.forecast, input.workingCapital, input.normalizationAdjustments);
   const waccSummary = calculateWacc({ ...input.wacc, taxRate: input.forecast.taxRate });
   const dcf = calculateDcf(forecastTable, waccSummary.wacc, input.terminalValue);
@@ -159,9 +290,18 @@ export function buildValuationReport(input: ValuationInput): ValuationReport {
     bridge.equityValue,
   );
   const valuationConclusion = buildValuationConclusion(input, executiveSummary, scenarioAnalysis, diagnosticsSummary, marketValuation);
+  const bankerGradeOutput = buildBankerGradeOutput(
+    input,
+    valuationConclusion,
+    diagnosticsSummary,
+    scenarioAnalysis,
+    marketValuation,
+    terminalValueBreakdown,
+    generatedAt,
+  );
 
   return {
-    generatedAt: new Date().toISOString(),
+    generatedAt,
     companyProfile: input.profile,
     inputAssumptions: input,
     normalizedEbitdaBridge,
@@ -177,11 +317,12 @@ export function buildValuationReport(input: ValuationInput): ValuationReport {
     marketValuation,
     valuationConclusion,
     executiveSummary,
+    bankerGradeOutput,
   };
 }
 
 export function buildReportSummaryText(report: ValuationReport): string {
-  return report.valuationConclusion.summaryText;
+  return report.bankerGradeOutput.executiveSummaryText;
 }
 
 export function buildReportJson(report: ValuationReport): string {
@@ -254,8 +395,43 @@ export function buildSensitivityCsv(report: ValuationReport): string {
   return rowsToCsv([header, ...rows]);
 }
 
+export function buildReadinessCsv(report: ValuationReport): string {
+  return rowsToCsv([
+    ["Metric", "Value"],
+    ["Readiness posture", report.bankerGradeOutput.readiness.posture],
+    ["Calculation integrity", report.bankerGradeOutput.readiness.calculationIntegrity],
+    ["Decision readiness", report.bankerGradeOutput.readiness.decisionReadiness],
+    ["Headline", report.bankerGradeOutput.readiness.headline],
+    ["Critical diagnostics", report.diagnosticsSummary.criticalCount],
+    ["Warning diagnostics", report.diagnosticsSummary.warningCount],
+  ]);
+}
+
+export function buildFootballFieldCsv(report: ValuationReport): string {
+  return rowsToCsv([
+    ["Method", "Low", "Midpoint", "High", "Basis"],
+    ...report.bankerGradeOutput.footballField.map((item) => [item.method, item.low, item.midpoint, item.high, item.basis]),
+  ]);
+}
+
+export function buildAssumptionsBookCsv(report: ValuationReport): string {
+  return rowsToCsv([
+    ["Section", "Assumption", "Value", "Source", "Rationale"],
+    ...report.bankerGradeOutput.assumptionsBook.map((item) => [item.section, item.assumption, item.value, item.source, item.rationale]),
+  ]);
+}
+
 export function buildCombinedCsvExport(report: ValuationReport): string {
   return [
+    "Readiness Summary",
+    buildReadinessCsv(report),
+    "",
+    "Valuation Football Field",
+    buildFootballFieldCsv(report),
+    "",
+    "Assumptions Book",
+    buildAssumptionsBookCsv(report),
+    "",
     "Forecast Table",
     buildForecastCsv(report),
     "",
