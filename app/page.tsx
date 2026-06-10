@@ -70,6 +70,11 @@ type ImportedDataSummary = {
   industrySuggestion: string;
   forecastGenerated: boolean;
 };
+type DataReadinessItem = {
+  label: string;
+  status: "connected" | "partial" | "manual";
+  detail: string;
+};
 
 const blankValuationInput = createBlankValuationInput();
 const defaultSimpleModeInput = simpleInputFromValuationInput(blankValuationInput);
@@ -95,6 +100,43 @@ function statusClassName(status: WorkflowStatus) {
 
 function StatusBadge({ status }: { status: WorkflowStatus }) {
   return <Badge className={statusClassName(status)}>{status}</Badge>;
+}
+
+function dataReadinessClassName(status: DataReadinessItem["status"]) {
+  if (status === "connected") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-800";
+  }
+  if (status === "partial") {
+    return "border-amber-200 bg-amber-50 text-amber-800";
+  }
+  return "border-slate-200 bg-slate-50 text-slate-700";
+}
+
+function DataReadinessPanel({ items, score }: { items: DataReadinessItem[]; score: number }) {
+  return (
+    <Card className="border-teal-200 bg-teal-50/40">
+      <CardHeader>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <CardTitle>Polish data autopilot</CardTitle>
+            <CardDescription>KRS-first workflow: company registry, BizRaport financials, PKD template, forecast seed, and market inputs are applied before you edit assumptions.</CardDescription>
+          </div>
+          <Badge className="border-teal-200 bg-white text-teal-800">Readiness {score}%</Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        {items.map((item) => (
+          <div key={item.label} className="rounded-2xl border border-slate-200 bg-white p-4">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-semibold text-slate-950">{item.label}</p>
+              <Badge className={dataReadinessClassName(item.status)}>{item.status}</Badge>
+            </div>
+            <p className="mt-2 text-xs leading-5 text-slate-600">{item.detail}</p>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
 }
 
 function WorkflowHeader({ id, eyebrow, title, description, status }: { id: string; eyebrow: string; title: string; description: string; status: WorkflowStatus }) {
@@ -352,6 +394,65 @@ function MetricCard({ label, value, helper }: { label: string; value: string; he
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{label}</p>
         <p className="mt-3 text-3xl font-bold text-slate-950">{value}</p>
         <p className="mt-2 text-sm text-slate-500">{helper}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ValuationRangePanel({
+  currency,
+  low,
+  base,
+  high,
+  confidenceScore,
+  readinessHeadline,
+}: {
+  currency: string;
+  low: number;
+  base: number;
+  high: number;
+  confidenceScore: number;
+  readinessHeadline: string;
+}) {
+  const range = Math.max(high - low, 1);
+  const basePosition = Math.min(Math.max(((base - low) / range) * 100, 0), 100);
+
+  return (
+    <Card className="border-slate-300 bg-white">
+      <CardHeader>
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <CardTitle>KRS-built valuation range</CardTitle>
+            <CardDescription>Bear, base, and upside adjusted equity values. The range re-renders as assumptions change.</CardDescription>
+          </div>
+          <Badge className={confidenceScore >= 80 ? "border-emerald-200 bg-emerald-50 text-emerald-800" : confidenceScore >= 60 ? "border-amber-200 bg-amber-50 text-amber-800" : "border-red-200 bg-red-50 text-red-800"}>Confidence {confidenceScore}%</Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <div className="grid gap-3 md:grid-cols-3">
+          {[
+            ["Conservative", money(low, currency), "Bear adjusted equity"],
+            ["Base case", money(base, currency), "Current model output"],
+            ["Upside", money(high, currency), "Bull adjusted equity"],
+          ].map(([label, value, helper]) => (
+            <div key={label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{label}</p>
+              <p className="mt-3 text-2xl font-bold text-slate-950">{value}</p>
+              <p className="mt-2 text-sm text-slate-500">{helper}</p>
+            </div>
+          ))}
+        </div>
+        <div>
+          <div className="relative h-3 rounded-full bg-slate-100">
+            <div className="absolute inset-y-0 left-0 rounded-full bg-teal-700" style={{ width: `${basePosition}%` }} />
+            <div className="absolute top-1/2 h-5 w-5 -translate-y-1/2 rounded-full border-2 border-white bg-slate-950 shadow" style={{ left: `calc(${basePosition}% - 10px)` }} />
+          </div>
+          <div className="mt-2 flex justify-between text-xs font-semibold text-slate-500">
+            <span>{money(low, currency)}</span>
+            <span>{money(high, currency)}</span>
+          </div>
+        </div>
+        <p className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">{readinessHeadline}</p>
       </CardContent>
     </Card>
   );
@@ -1314,15 +1415,49 @@ export default function Home() {
       confidence: betaSource?.value !== null && betaSource?.value !== undefined ? betaSource.confidence : "low",
     },
   ];
+  const dataReadinessItems: DataReadinessItem[] = [
+    {
+      label: "KRS registry",
+      status: krsProfile ? "connected" : input.profile.registrationNumber ? "partial" : "manual",
+      detail: krsProfile ? "Company profile was loaded from Public KRS." : input.profile.registrationNumber ? "KRS number is present; registry profile can be refreshed through a new valuation." : "No KRS profile connected yet.",
+    },
+    {
+      label: "BizRaport financials",
+      status: companyData?.years.length ? "connected" : importedDataSummary ? "partial" : "manual",
+      detail: companyData?.years.length ? `${companyData.years.length} imported financial period(s) are mapped into historicals.` : "No BizRaport financial years are connected.",
+    },
+    {
+      label: "PKD template",
+      status: activePkdSuggestion ? "connected" : input.profile.industry ? "partial" : "manual",
+      detail: activePkdSuggestion ? `${activePkdSuggestion.industryTemplateName} applied from PKD ${activePkdSuggestion.division}.` : "Industry can be selected manually when PKD mapping is unavailable.",
+    },
+    {
+      label: "Forecast seed",
+      status: forecastAutoSeeded ? "connected" : "manual",
+      detail: forecastAutoSeeded ? "Forecast assumptions were generated from imported financials." : "Forecast assumptions are currently user-entered or template defaults.",
+    },
+    {
+      label: "Market inputs",
+      status: riskFreeRateSource || erpSource || betaSource ? riskFreeRateSource && erpSource && betaSource ? "connected" : "partial" : "manual",
+      detail: riskFreeRateSource && erpSource && betaSource ? "Risk-free rate, ERP, and beta sources are loaded." : "Some WACC market sources are still manual.",
+    },
+  ];
+  const connectedDataSources = dataReadinessItems.filter((item) => item.status === "connected").length;
+  const partialDataSources = dataReadinessItems.filter((item) => item.status === "partial").length;
+  const sourceReadinessScore = Math.min(100, Math.round(((connectedDataSources + partialDataSources * 0.5) / dataReadinessItems.length) * 100));
+  const diagnosticPenalty = model.diagnostics.criticalCount * 20 + model.diagnostics.warningCount * 5;
+  const valuationConfidenceScore = Math.max(20, Math.min(95, sourceReadinessScore + (model.diagnostics.criticalCount === 0 ? 10 : 0) - diagnosticPenalty));
+  const valuationRangeLow = Math.min(model.valuationReport.valuationConclusion.bearAdjustedEquityValue, model.valuationReport.valuationConclusion.baseAdjustedEquityValue, model.valuationReport.valuationConclusion.bullAdjustedEquityValue);
+  const valuationRangeHigh = Math.max(model.valuationReport.valuationConclusion.bearAdjustedEquityValue, model.valuationReport.valuationConclusion.baseAdjustedEquityValue, model.valuationReport.valuationConclusion.bullAdjustedEquityValue);
 
   if (!workspaceStarted) {
     return (
       <main className="min-h-screen px-6 py-8 lg:px-10">
         <section className="mx-auto max-w-5xl space-y-8">
           <div className="rounded-3xl border border-slate-200 bg-slate-950 p-8 text-white shadow-xl">
-            <Badge className="border-teal-400/30 bg-teal-400/10 text-teal-100">Valuation setup</Badge>
-            <h1 className="mt-5 max-w-3xl text-4xl font-bold tracking-tight lg:text-5xl">Start with one company lookup</h1>
-            <p className="mt-4 max-w-3xl text-base leading-7 text-slate-300">Enter KRS, import what is available, then choose a quick estimate or the full workbench. You can skip import and type numbers manually.</p>
+            <Badge className="border-teal-400/30 bg-teal-400/10 text-teal-100">KRS-first valuation</Badge>
+            <h1 className="mt-5 max-w-3xl text-4xl font-bold tracking-tight lg:text-5xl">Enter KRS. Let the model build the first valuation.</h1>
+            <p className="mt-4 max-w-3xl text-base leading-7 text-slate-300">The workflow pulls available KRS and BizRaport data, applies PKD classification, seeds forecast and WACC inputs, then leaves every assumption editable.</p>
           </div>
 
           <div className="grid gap-3 md:grid-cols-3">
@@ -1360,13 +1495,13 @@ export default function Home() {
                     {combinedImportStatus ? <p className="mt-3 text-sm text-slate-600">{combinedImportStatus}</p> : null}
                   </div>
 
-                  {combinedImportPreview ? <CombinedCompanyImportPreview preview={combinedImportPreview} currency={wizardInput.currency} /> : null}
+                  {combinedImportPreview ? <><DataReadinessPanel items={dataReadinessItems} score={sourceReadinessScore} /><CombinedCompanyImportPreview preview={combinedImportPreview} currency={wizardInput.currency} /></> : null}
                 </div>
               )}
 
               {wizardStep === 2 && (
                 <div className="space-y-5">
-                  {importedDataSummary ? <ImportedDataSummaryCard summary={importedDataSummary} /> : null}
+                  {importedDataSummary ? <><DataReadinessPanel items={dataReadinessItems} score={sourceReadinessScore} /><ImportedDataSummaryCard summary={importedDataSummary} /></> : null}
                   <div className="grid gap-4 md:grid-cols-2">
                     <button className={`rounded-2xl border p-5 text-left transition ${wizardInput.valuationType === "simple" ? "border-teal-700 bg-teal-50" : "border-slate-200 bg-white hover:border-teal-500"}`} onClick={() => updateWizard("valuationType", "simple")}>
                       <p className="text-lg font-bold text-slate-950">Quick estimate</p>
@@ -1413,10 +1548,10 @@ export default function Home() {
         <div className="rounded-3xl border border-slate-200 bg-slate-950 p-8 text-white shadow-xl">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <Badge className="border-teal-400/30 bg-teal-400/10 text-teal-100">Private SME valuation workbench</Badge>
-              <h1 className="mt-5 max-w-4xl text-4xl font-bold tracking-tight lg:text-5xl">Valuation workspace</h1>
+              <Badge className="border-teal-400/30 bg-teal-400/10 text-teal-100">Polish SME valuation workbench</Badge>
+              <h1 className="mt-5 max-w-4xl text-4xl font-bold tracking-tight lg:text-5xl">KRS-built valuation workspace</h1>
               <p className="mt-4 max-w-3xl text-base leading-7 text-slate-300">
-                Work through company data, forecast, WACC, DCF, market cross-checks, diagnostics, and export in one guided flow.
+                Review the model that was prefilled from KRS, BizRaport, PKD mapping, WACC sources, forecast logic, diagnostics, and export-ready valuation outputs.
               </p>
             </div>
             <div className="grid gap-3 text-sm text-slate-300">
@@ -1427,6 +1562,8 @@ export default function Home() {
             </div>
           </div>
         </div>
+
+        <DataReadinessPanel items={dataReadinessItems} score={sourceReadinessScore} />
 
         <Card className="border-slate-300 bg-white/90">
           <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between">
@@ -1833,10 +1970,19 @@ export default function Home() {
             <div>
               <Badge>Valuation output</Badge>
               <h2 className="mt-3 text-2xl font-bold text-slate-950">Investment committee summary</h2>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">A finance-ready output pack with headline valuation metrics, detailed DCF mechanics, terminal value support, bridge schedules, private company adjustments, automated methodology warnings, and exportable report files.</p>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">A finance-ready output pack with a KRS-built valuation range, headline metrics, DCF mechanics, bridge schedules, private company adjustments, diagnostics, and exportable report files.</p>
             </div>
             <a href="#export" className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800">Go to export</a>
           </div>
+
+          <ValuationRangePanel
+            currency={input.profile.currency}
+            low={valuationRangeLow}
+            base={model.valuationReport.valuationConclusion.baseAdjustedEquityValue}
+            high={valuationRangeHigh}
+            confidenceScore={valuationConfidenceScore}
+            readinessHeadline={model.diagnostics.readiness.headline}
+          />
 
           <Card>
             <CardHeader>
