@@ -16,12 +16,22 @@ export type ExecutiveSummary = {
 };
 
 export type TerminalValueBreakdown = {
+  method: TerminalValueAssumptions["method"];
   finalYearFcff: number;
   nextYearFcff: number;
+  finalYearEbitda: number;
   wacc: number;
   terminalGrowth: number;
+  terminalSpread: number;
+  gordonTerminalValue: number;
+  exitMultipleTerminalValue: number;
+  selectedTerminalValue: number;
   terminalValue: number;
   presentValueTerminalValue: number;
+  impliedExitMultipleFromGordon: number;
+  impliedPerpetualGrowthFromExitMultiple: number;
+  terminalValueMethodGapPct: number;
+  isGordonGrowthValid: boolean;
 };
 
 export type EvToEquityBridgeOutput = {
@@ -60,6 +70,14 @@ function safeDivide(numerator: number, denominator: number): number {
   return denominator === 0 ? Number.NaN : numerator / denominator;
 }
 
+function calculateImpliedPerpetualGrowthFromTerminalValue(terminalValue: number, wacc: number, finalYearFcff: number): number {
+  if (!Number.isFinite(terminalValue) || terminalValue <= 0 || !Number.isFinite(finalYearFcff)) {
+    return Number.NaN;
+  }
+
+  return (terminalValue * wacc - finalYearFcff) / (terminalValue + finalYearFcff);
+}
+
 export function calculateExecutiveSummary(
   dcf: DcfResult,
   bridge: EquityBridgeResult,
@@ -86,13 +104,34 @@ export function calculateTerminalValueBreakdown(
   terminal: TerminalValueAssumptions,
 ): TerminalValueBreakdown {
   const finalYear = dcf.forecastYears[dcf.forecastYears.length - 1];
+  const impliedExitMultipleFromGordon = safeDivide(dcf.terminalValue.gordonTerminalValue, finalYear.ebitda);
+  const impliedPerpetualGrowthFromExitMultiple = calculateImpliedPerpetualGrowthFromTerminalValue(
+    dcf.terminalValue.exitMultipleTerminalValue,
+    wacc,
+    finalYear.freeCashFlow,
+  );
+  const terminalValueMethodGapPct = safeDivide(
+    dcf.terminalValue.gordonTerminalValue - dcf.terminalValue.exitMultipleTerminalValue,
+    Math.abs(dcf.terminalValue.exitMultipleTerminalValue),
+  );
+
   return {
+    method: terminal.method,
     finalYearFcff: finalYear.freeCashFlow,
     nextYearFcff: finalYear.freeCashFlow * (1 + terminal.perpetualGrowthRate),
+    finalYearEbitda: finalYear.ebitda,
     wacc,
     terminalGrowth: terminal.perpetualGrowthRate,
+    terminalSpread: dcf.terminalValue.gordonSpread,
+    gordonTerminalValue: dcf.terminalValue.gordonTerminalValue,
+    exitMultipleTerminalValue: dcf.terminalValue.exitMultipleTerminalValue,
+    selectedTerminalValue: dcf.terminalValue.selectedTerminalValue,
     terminalValue: dcf.terminalValue.selectedTerminalValue,
     presentValueTerminalValue: dcf.terminalValue.presentValueTerminalValue,
+    impliedExitMultipleFromGordon,
+    impliedPerpetualGrowthFromExitMultiple,
+    terminalValueMethodGapPct,
+    isGordonGrowthValid: dcf.terminalValue.isGordonGrowthValid,
   };
 }
 
