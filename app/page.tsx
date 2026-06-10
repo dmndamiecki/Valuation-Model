@@ -126,12 +126,12 @@ function DataReadinessPanel({ items, score }: { items: DataReadinessItem[]; scor
       </CardHeader>
       <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
         {items.map((item) => (
-          <div key={item.label} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-sm font-semibold text-slate-950">{item.label}</p>
-              <Badge className={dataReadinessClassName(item.status)}>{item.status}</Badge>
+          <div key={item.label} className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="min-w-0 text-sm font-semibold text-slate-950">{item.label}</p>
+              <Badge className={`${dataReadinessClassName(item.status)} shrink-0`}>{item.status}</Badge>
             </div>
-            <p className="mt-2 text-xs leading-5 text-slate-600">{item.detail}</p>
+            <p className="mt-2 break-words text-xs leading-5 text-slate-600">{item.detail}</p>
           </div>
         ))}
       </CardContent>
@@ -427,15 +427,15 @@ function ValuationRangePanel({
         </div>
       </CardHeader>
       <CardContent className="space-y-5">
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid gap-3 lg:grid-cols-3">
           {[
             ["Conservative", money(low, currency), "Bear adjusted equity"],
             ["Base case", money(base, currency), "Current model output"],
             ["Upside", money(high, currency), "Bull adjusted equity"],
           ].map(([label, value, helper]) => (
-            <div key={label} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+            <div key={label} className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-4">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{label}</p>
-              <p className="mt-3 text-2xl font-bold text-slate-950">{value}</p>
+              <p className="mt-3 break-words text-xl font-bold text-slate-950 sm:text-2xl">{value}</p>
               <p className="mt-2 text-sm text-slate-500">{helper}</p>
             </div>
           ))}
@@ -1555,13 +1555,13 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen px-6 py-8 lg:px-10">
-      <section className="mx-auto max-w-7xl space-y-6">
+    <main className="min-h-screen overflow-x-hidden px-4 py-6 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-6xl space-y-6">
         <div className="rounded-xl border border-slate-300 bg-white p-6 shadow-sm">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <Badge className="border-teal-200 bg-teal-50 text-teal-800">Polish SME valuation workbench</Badge>
-              <h1 className="mt-4 max-w-4xl text-3xl font-bold tracking-tight text-slate-950 lg:text-4xl">{input.profile.companyName}</h1>
+              <h1 className="mt-4 max-w-4xl break-words text-3xl font-bold tracking-tight text-slate-950 lg:text-4xl">{input.profile.companyName}</h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
                 KRS-built valuation workspace with live DCF, bridge, private company discounts, diagnostics, and export-ready outputs.
               </p>
@@ -1575,7 +1575,7 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
+        <div className="grid gap-5">
           <ValuationRangePanel
             currency={input.profile.currency}
             low={valuationRangeLow}
