@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertCircle, Building2, Calculator, LineChart as LineChartIcon } from "lucide-react";
+import { AlertCircle, Building2, Calculator, Database, LineChart as LineChartIcon, ShieldCheck, SlidersHorizontal } from "lucide-react";
 import {
   Area,
   AreaChart,
@@ -114,19 +114,19 @@ function dataReadinessClassName(status: DataReadinessItem["status"]) {
 
 function DataReadinessPanel({ items, score }: { items: DataReadinessItem[]; score: number }) {
   return (
-    <Card className="border-teal-200 bg-teal-50/40">
+    <Card className="border-slate-300 bg-white">
       <CardHeader>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <CardTitle>Polish data autopilot</CardTitle>
-            <CardDescription>KRS-first workflow: company registry, BizRaport financials, PKD template, forecast seed, and market inputs are applied before you edit assumptions.</CardDescription>
+            <CardTitle>Data readiness</CardTitle>
+            <CardDescription>KRS, BizRaport, PKD, forecast seed, and WACC sources are checked before you rely on the valuation output.</CardDescription>
           </div>
-          <Badge className="border-teal-200 bg-white text-teal-800">Readiness {score}%</Badge>
+          <Badge className={score >= 80 ? "border-emerald-200 bg-emerald-50 text-emerald-800" : score >= 50 ? "border-amber-200 bg-amber-50 text-amber-800" : "border-slate-200 bg-slate-50 text-slate-700"}>Readiness {score}%</Badge>
         </div>
       </CardHeader>
       <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
         {items.map((item) => (
-          <div key={item.label} className="rounded-2xl border border-slate-200 bg-white p-4">
+          <div key={item.label} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
             <div className="flex items-center justify-between gap-2">
               <p className="text-sm font-semibold text-slate-950">{item.label}</p>
               <Badge className={dataReadinessClassName(item.status)}>{item.status}</Badge>
@@ -141,11 +141,11 @@ function DataReadinessPanel({ items, score }: { items: DataReadinessItem[]; scor
 
 function WorkflowHeader({ id, eyebrow, title, description, status }: { id: string; eyebrow: string; title: string; description: string; status: WorkflowStatus }) {
   return (
-    <div id={id} className="scroll-mt-28 rounded-2xl border border-slate-200 bg-white/80 p-5 shadow-sm backdrop-blur">
+    <div id={id} className="scroll-mt-28 border-b border-slate-200 pb-3 pt-5">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-teal-700">{eyebrow}</p>
-          <h2 className="mt-1 text-2xl font-bold tracking-tight text-slate-950">{title}</h2>
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">{eyebrow}</p>
+          <h2 className="mt-1 text-xl font-bold tracking-tight text-slate-950">{title}</h2>
           <p className="mt-1 text-sm leading-6 text-slate-600">{description}</p>
         </div>
         <StatusBadge status={status} />
@@ -157,10 +157,10 @@ function WorkflowHeader({ id, eyebrow, title, description, status }: { id: strin
 function WorkflowNav({ sections }: { sections: WorkflowSectionItem[] }) {
   const displaySections = sections.filter((_section, index) => [0, 3, 5, 8, 9].includes(index));
   return (
-    <nav className="sticky top-0 z-20 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-sm backdrop-blur">
+    <nav className="sticky top-0 z-20 rounded-lg border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur">
       <div className="flex gap-2 overflow-x-auto pb-1">
         {displaySections.map((section) => (
-          <a key={section.id} href={`#${section.id}`} className="flex min-w-max items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-teal-500 hover:text-teal-800">
+          <a key={section.id} href={`#${section.id}`} className="flex min-w-max items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-teal-500 hover:text-teal-800">
             <span>{section.label}</span>
             <span className={`rounded-full px-2 py-0.5 ${statusClassName(section.status)}`}>{section.status}</span>
           </a>
@@ -248,7 +248,7 @@ function TemplateAssumptionTable({ template }: { template: IndustryTemplate }) {
   ] as const;
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+    <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
       <table className="w-full min-w-[760px] text-sm">
         <thead>
           <tr className="border-b bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
@@ -282,7 +282,7 @@ function PkdSuggestionPanel({ suggestion }: { suggestion: PkdIndustrySuggestion 
   }
 
   return (
-    <div className="rounded-2xl border border-teal-200 bg-teal-50 p-4 text-sm">
+    <div className="rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="font-semibold text-teal-950">{suggestion.message}</p>
@@ -302,7 +302,7 @@ function CombinedCompanyImportPreview({ preview, currency }: { preview: Combined
   const hasFinancials = Boolean(latest);
 
   return (
-    <div className="space-y-4 rounded-2xl border border-teal-200 bg-teal-50/60 p-4">
+    <div className="space-y-4 rounded-lg border border-teal-200 bg-teal-50/60 p-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm font-bold text-slate-950">Imported company data</p>
@@ -312,7 +312,7 @@ function CombinedCompanyImportPreview({ preview, currency }: { preview: Combined
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="rounded-lg border border-slate-200 bg-white p-4">
           <h3 className="text-sm font-bold uppercase tracking-wide text-slate-600">Company profile</h3>
           {hasProfile ? (
             <div className="mt-3">
@@ -329,7 +329,7 @@ function CombinedCompanyImportPreview({ preview, currency }: { preview: Combined
           ) : <p className="mt-3 text-sm text-slate-500">No profile data returned.</p>}
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="rounded-lg border border-slate-200 bg-white p-4">
           <h3 className="text-sm font-bold uppercase tracking-wide text-slate-600">Financials</h3>
           {hasFinancials ? (
             <div className="mt-3">
@@ -346,7 +346,7 @@ function CombinedCompanyImportPreview({ preview, currency }: { preview: Combined
           ) : <p className="mt-3 text-sm text-slate-500">No BizRaport financial years available. Manual financial inputs will be requested later.</p>}
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="rounded-lg border border-slate-200 bg-white p-4">
           <h3 className="text-sm font-bold uppercase tracking-wide text-slate-600">Generated assumptions</h3>
           {preview.seed ? (
             <div className="mt-3 space-y-2 text-sm">
@@ -369,12 +369,12 @@ function CombinedCompanyImportPreview({ preview, currency }: { preview: Combined
 
 function ImportedDataSummaryCard({ summary }: { summary: ImportedDataSummary }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Imported data summary</CardTitle>
-        <CardDescription>Company data imported in the setup wizard. Fields remain editable; the model recalculates as assumptions change.</CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-3 text-sm md:grid-cols-2 xl:grid-cols-3">
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+      <div className="mb-4">
+        <h3 className="text-sm font-semibold text-slate-950">Imported data summary</h3>
+        <p className="mt-1 text-sm text-slate-500">Company data imported in the setup wizard. Fields remain editable; the model recalculates as assumptions change.</p>
+      </div>
+      <div className="grid gap-3 text-sm md:grid-cols-2 xl:grid-cols-3">
         <OutputRow label="Source" value={summary.sources.join(" / ") || "Manual"} />
         <OutputRow label="Company name" value={summary.companyName || "Unavailable"} />
         <OutputRow label="Latest financial year" value={summary.latestFinancialYear ? String(summary.latestFinancialYear) : "Unavailable"} />
@@ -382,20 +382,18 @@ function ImportedDataSummaryCard({ summary }: { summary: ImportedDataSummary }) 
         <OutputRow label="EBITDA" value={summary.ebitda !== null ? currencyFormatter.format(summary.ebitda) : "Unavailable"} />
         <OutputRow label="Industry suggestion" value={summary.industrySuggestion || "Unavailable"} />
         <OutputRow label="Forecast generated" value={summary.forecastGenerated ? "Yes" : "No"} />
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 
 function MetricCard({ label, value, helper }: { label: string; value: string; helper: string }) {
   return (
-    <Card className="overflow-hidden">
-      <CardContent className="p-5">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{label}</p>
-        <p className="mt-3 text-3xl font-bold text-slate-950">{value}</p>
-        <p className="mt-2 text-sm text-slate-500">{helper}</p>
-      </CardContent>
-    </Card>
+    <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{label}</p>
+      <p className="mt-3 text-2xl font-bold text-slate-950">{value}</p>
+      <p className="mt-2 text-sm text-slate-500">{helper}</p>
+    </div>
   );
 }
 
@@ -435,7 +433,7 @@ function ValuationRangePanel({
             ["Base case", money(base, currency), "Current model output"],
             ["Upside", money(high, currency), "Bull adjusted equity"],
           ].map(([label, value, helper]) => (
-            <div key={label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div key={label} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{label}</p>
               <p className="mt-3 text-2xl font-bold text-slate-950">{value}</p>
               <p className="mt-2 text-sm text-slate-500">{helper}</p>
@@ -452,7 +450,7 @@ function ValuationRangePanel({
             <span>{money(high, currency)}</span>
           </div>
         </div>
-        <p className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">{readinessHeadline}</p>
+        <p className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">{readinessHeadline}</p>
       </CardContent>
     </Card>
   );
@@ -1453,26 +1451,35 @@ export default function Home() {
   if (!workspaceStarted) {
     return (
       <main className="min-h-screen px-6 py-8 lg:px-10">
-        <section className="mx-auto max-w-5xl space-y-8">
-          <div className="rounded-3xl border border-slate-200 bg-slate-950 p-8 text-white shadow-xl">
-            <Badge className="border-teal-400/30 bg-teal-400/10 text-teal-100">KRS-first valuation</Badge>
-            <h1 className="mt-5 max-w-3xl text-4xl font-bold tracking-tight lg:text-5xl">Enter KRS. Let the model build the first valuation.</h1>
-            <p className="mt-4 max-w-3xl text-base leading-7 text-slate-300">The workflow pulls available KRS and BizRaport data, applies PKD classification, seeds forecast and WACC inputs, then leaves every assumption editable.</p>
+        <section className="mx-auto max-w-6xl space-y-6">
+          <div className="rounded-xl border border-slate-300 bg-white p-6 shadow-sm lg:p-8">
+            <div className="grid gap-8 lg:grid-cols-[1.2fr_0.8fr] lg:items-end">
+              <div>
+                <Badge className="border-teal-200 bg-teal-50 text-teal-800">KRS-first SME valuation</Badge>
+                <h1 className="mt-5 max-w-3xl text-3xl font-bold tracking-tight text-slate-950 lg:text-5xl">Build the first valuation from a KRS number.</h1>
+                <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">The app pulls the company profile, maps BizRaport financial ranges, applies PKD logic, seeds forecast and WACC assumptions, then lets you review and override the model.</p>
+              </div>
+              <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                <div className="flex items-center gap-2"><Database size={17} className="text-teal-700" /> KRS + BizRaport data first</div>
+                <div className="flex items-center gap-2"><SlidersHorizontal size={17} className="text-teal-700" /> Assumptions remain editable</div>
+                <div className="flex items-center gap-2"><ShieldCheck size={17} className="text-teal-700" /> Diagnostics before export</div>
+              </div>
+            </div>
           </div>
 
           <div className="grid gap-3 md:grid-cols-3">
             {[1, 2, ...(wizardImportApplied && companyData?.years.length ? [] : [3])].map((step) => (
-              <button key={step} className={`rounded-2xl border p-4 text-left text-sm font-semibold transition ${wizardStep === step ? "border-teal-600 bg-teal-50 text-teal-900" : "border-slate-200 bg-white text-slate-700 hover:border-teal-400"}`} onClick={() => setWizardStep(step as 1 | 2 | 3)}>
-                <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Step {step}</span>
-                <span className="mt-1 block">{step === 1 ? "Company lookup" : step === 2 ? "Valuation path" : "Manual numbers"}</span>
+              <button key={step} className={`rounded-lg border p-4 text-left text-sm font-semibold transition ${wizardStep === step ? "border-slate-950 bg-slate-950 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-teal-500"}`} onClick={() => setWizardStep(step as 1 | 2 | 3)}>
+                <span className={`text-xs uppercase tracking-[0.2em] ${wizardStep === step ? "text-slate-300" : "text-slate-500"}`}>{step === 1 ? "Company data" : step === 2 ? "Model path" : "Fallback"}</span>
+                <span className="mt-1 block">{step === 1 ? "Fetch and build" : step === 2 ? "Choose output depth" : "Manual numbers"}</span>
               </button>
             ))}
           </div>
 
           <Card>
             <CardHeader>
-              <CardTitle>{wizardStep === 1 ? "Step 1: Find the company" : wizardStep === 2 ? "Step 2: Choose the workflow" : "Step 3: Enter core numbers"}</CardTitle>
-              <CardDescription>{wizardStep === 1 ? "Use one KRS lookup to fetch and apply Public KRS, BizRaport, PKD template, forecast seed, and market sources." : wizardStep === 2 ? "Choose the quick owner estimate or the full professional workbench." : "Use manual inputs only when imported financials are unavailable or skipped."}</CardDescription>
+              <CardTitle>{wizardStep === 1 ? "Company lookup" : wizardStep === 2 ? "Valuation path" : "Manual financial fallback"}</CardTitle>
+              <CardDescription>{wizardStep === 1 ? "One action builds the initial model from available Polish company data." : wizardStep === 2 ? "Choose the output depth after source data has been applied." : "Use manual inputs only when imported financials are unavailable or skipped."}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               {wizardStep === 1 && (
@@ -1484,13 +1491,18 @@ export default function Home() {
                     <div className="space-y-1.5"><Label>Valuation date</Label><Input value={wizardInput.valuationDate} onChange={(event) => updateWizard("valuationDate", event.target.value)} /></div>
                   </div>
 
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                  <div className="rounded-lg border border-slate-300 bg-white p-5 shadow-sm">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div>
-                        <p className="text-sm font-bold text-slate-950">One-click company lookup</p>
-                        <p className="mt-1 text-sm text-slate-600">Fetch and apply registry details, BizRaport financial ranges, PKD industry suggestion, initial forecast assumptions, and WACC market sources in one step.</p>
+                        <p className="text-sm font-bold text-slate-950">Build from KRS</p>
+                        <p className="mt-1 text-sm text-slate-600">Fetch registry details, BizRaport ranges, PKD suggestion, forecast seed, and WACC source summary in one step.</p>
                       </div>
-                      <button className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={fetchCombinedCompanyData}>Fetch and build model</button>
+                      <button className="rounded-md bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={fetchCombinedCompanyData}>Fetch and build model</button>
+                    </div>
+                    <div className="mt-4 grid gap-2 text-xs font-semibold text-slate-600 sm:grid-cols-5">
+                      {["KRS profile", "BizRaport", "PKD", "Forecast", "WACC"].map((label) => (
+                        <span key={label} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">{label}</span>
+                      ))}
                     </div>
                     {combinedImportStatus ? <p className="mt-3 text-sm text-slate-600">{combinedImportStatus}</p> : null}
                   </div>
@@ -1503,11 +1515,11 @@ export default function Home() {
                 <div className="space-y-5">
                   {importedDataSummary ? <><DataReadinessPanel items={dataReadinessItems} score={sourceReadinessScore} /><ImportedDataSummaryCard summary={importedDataSummary} /></> : null}
                   <div className="grid gap-4 md:grid-cols-2">
-                    <button className={`rounded-2xl border p-5 text-left transition ${wizardInput.valuationType === "simple" ? "border-teal-700 bg-teal-50" : "border-slate-200 bg-white hover:border-teal-500"}`} onClick={() => updateWizard("valuationType", "simple")}>
+                    <button className={`rounded-lg border p-5 text-left transition ${wizardInput.valuationType === "simple" ? "border-teal-700 bg-teal-50" : "border-slate-200 bg-white hover:border-teal-500"}`} onClick={() => updateWizard("valuationType", "simple")}>
                       <p className="text-lg font-bold text-slate-950">Quick estimate</p>
                       <p className="mt-2 text-sm leading-6 text-slate-600">A short owner-style valuation using imported or manually entered core numbers.</p>
                     </button>
-                    <button className={`rounded-2xl border p-5 text-left transition ${wizardInput.valuationType === "professional" ? "border-slate-950 bg-slate-50" : "border-slate-200 bg-white hover:border-slate-500"}`} onClick={() => updateWizard("valuationType", "professional")}>
+                    <button className={`rounded-lg border p-5 text-left transition ${wizardInput.valuationType === "professional" ? "border-slate-950 bg-slate-50" : "border-slate-200 bg-white hover:border-slate-500"}`} onClick={() => updateWizard("valuationType", "professional")}>
                       <p className="text-lg font-bold text-slate-950">Full workbench</p>
                       <p className="mt-2 text-sm leading-6 text-slate-600">Detailed workflow for historicals, normalization, forecast, WACC, DCF, diagnostics, and exports.</p>
                     </button>
@@ -1544,36 +1556,45 @@ export default function Home() {
 
   return (
     <main className="min-h-screen px-6 py-8 lg:px-10">
-      <section className="mx-auto max-w-7xl space-y-8">
-        <div className="rounded-3xl border border-slate-200 bg-slate-950 p-8 text-white shadow-xl">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+      <section className="mx-auto max-w-7xl space-y-6">
+        <div className="rounded-xl border border-slate-300 bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <Badge className="border-teal-400/30 bg-teal-400/10 text-teal-100">Polish SME valuation workbench</Badge>
-              <h1 className="mt-5 max-w-4xl text-4xl font-bold tracking-tight lg:text-5xl">KRS-built valuation workspace</h1>
-              <p className="mt-4 max-w-3xl text-base leading-7 text-slate-300">
-                Review the model that was prefilled from KRS, BizRaport, PKD mapping, WACC sources, forecast logic, diagnostics, and export-ready valuation outputs.
+              <Badge className="border-teal-200 bg-teal-50 text-teal-800">Polish SME valuation workbench</Badge>
+              <h1 className="mt-4 max-w-4xl text-3xl font-bold tracking-tight text-slate-950 lg:text-4xl">{input.profile.companyName}</h1>
+              <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
+                KRS-built valuation workspace with live DCF, bridge, private company discounts, diagnostics, and export-ready outputs.
               </p>
             </div>
-            <div className="grid gap-3 text-sm text-slate-300">
-              <div className="flex items-center gap-2"><Building2 size={18} /> {input.profile.companyName}</div>
-              <div className="flex items-center gap-2"><Calculator size={18} /> {input.profile.country} · Currency: {input.profile.currency} in 000s</div>
-              <div className="flex items-center gap-2"><LineChartIcon size={18} /> Valuation date: {input.profile.valuationDate}</div>
-              <button className="mt-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/20" onClick={startNewValuation}>Start new valuation</button>
+            <div className="grid gap-2 text-sm text-slate-700">
+              <div className="flex items-center gap-2"><Building2 size={18} className="text-teal-700" /> {input.profile.country}</div>
+              <div className="flex items-center gap-2"><Calculator size={18} className="text-teal-700" /> Currency: {input.profile.currency} in 000s</div>
+              <div className="flex items-center gap-2"><LineChartIcon size={18} className="text-teal-700" /> Valuation date: {input.profile.valuationDate}</div>
+              <button className="mt-2 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition hover:border-teal-600 hover:text-teal-800" onClick={startNewValuation}>Start new valuation</button>
             </div>
           </div>
         </div>
 
-        <DataReadinessPanel items={dataReadinessItems} score={sourceReadinessScore} />
-
+        <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
+          <ValuationRangePanel
+            currency={input.profile.currency}
+            low={valuationRangeLow}
+            base={model.valuationReport.valuationConclusion.baseAdjustedEquityValue}
+            high={valuationRangeHigh}
+            confidenceScore={valuationConfidenceScore}
+            readinessHeadline={model.diagnostics.criticalCount > 0 ? "Critical diagnostics are active. Review the warnings before using this valuation range." : "No critical diagnostics are active. Review assumptions, then export the valuation package."}
+          />
+          <DataReadinessPanel items={dataReadinessItems} score={sourceReadinessScore} />
+        </div>
         <Card className="border-slate-300 bg-white/90">
           <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Workflow</p>
-              <p className="mt-1 text-sm text-slate-600">Switch between a quick estimate and the full workbench.</p>
+              <p className="mt-1 text-sm text-slate-600">Use the quick estimate for a fast view, or open the full workbench for banker-style review.</p>
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
-              <button className={`rounded-xl border px-5 py-3 text-sm font-semibold transition ${mode === "simple" ? "border-teal-700 bg-teal-700 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-teal-600"}`} onClick={() => switchMode("simple")}>Simple Mode</button>
-              <button className={`rounded-xl border px-5 py-3 text-sm font-semibold transition ${mode === "professional" ? "border-slate-950 bg-slate-950 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-slate-950"}`} onClick={() => switchMode("professional")}>Professional Mode</button>
+              <button className={`rounded-md border px-5 py-3 text-sm font-semibold transition ${mode === "simple" ? "border-teal-700 bg-teal-700 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-teal-600"}`} onClick={() => switchMode("simple")}>Quick estimate</button>
+              <button className={`rounded-md border px-5 py-3 text-sm font-semibold transition ${mode === "professional" ? "border-slate-950 bg-slate-950 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-slate-950"}`} onClick={() => switchMode("professional")}>Full workbench</button>
             </div>
           </CardContent>
         </Card>
@@ -1592,7 +1613,7 @@ export default function Home() {
                 <div className="space-y-1.5"><Label>Industry</Label><Input value={simpleInput.industry} onChange={(event) => updateSimple("industry", event.target.value)} /></div>
                 <div className="space-y-1.5"><Label>Registration Number</Label><Input value={simpleInput.registrationNumber} onChange={(event) => updateSimple("registrationNumber", event.target.value)} /></div>
                 {importedDataSummary ? <div className="md:col-span-2"><ImportedDataSummaryCard summary={importedDataSummary} /></div> : null}
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 md:col-span-2">Company import now lives in the setup wizard. Use "Start new valuation" if you want to run a fresh KRS + BizRaport lookup.</div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 md:col-span-2">Company import now lives in the setup wizard. Use "Start new valuation" if you want to run a fresh KRS + BizRaport lookup.</div>
                 <div className="md:col-span-2"><PkdSuggestionPanel suggestion={activePkdSuggestion} /></div>
                 {forecastAutoSeeded ? <div className="md:col-span-2"><Badge className="border-teal-200 bg-teal-50 text-teal-800">Auto-generated from historical financials</Badge>{forecastSeedNotes.map((note) => <p key={note} className="mt-2 text-xs text-slate-500">{note}</p>)}</div> : null}
                 <NumberField label="Latest revenue" value={simpleInput.latestRevenue} onChange={(value) => updateSimple("latestRevenue", value)} />
@@ -1617,7 +1638,7 @@ export default function Home() {
                   <MetricCard label="Adjusted Equity Value" value={money(model.discounts.adjustedEquityValue, input.profile.currency)} helper="After private company discounts" />
                   <MetricCard label="EV / EBITDA" value={multiple(model.executiveSummary.evToNormalizedEbitda)} helper="Based on latest EBITDA" />
                 </div>
-                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <div className="rounded-lg border border-slate-200 bg-white p-4">
                   <h3 className="text-sm font-bold uppercase tracking-wide text-slate-600">Bear / Base / Bull range</h3>
                   <div className="mt-3 grid gap-3 sm:grid-cols-3">
                     {model.scenarioAnalysis.map((scenario) => (
@@ -1628,7 +1649,7 @@ export default function Home() {
                     ))}
                   </div>
                 </div>
-                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
                   <h3 className="flex items-center gap-2 text-sm font-bold text-amber-950"><AlertCircle size={16} /> Key warnings</h3>
                   {model.warnings.length > 0 ? (
                     <ul className="mt-3 space-y-2 text-sm text-amber-950">
@@ -1693,7 +1714,7 @@ export default function Home() {
                 <p className="mt-1 text-sm text-slate-500">Available source mapping: {companySources.map((source) => source.name).join(", ") || "No mapped source"}</p>
               </div>
               {importedDataSummary ? <ImportedDataSummaryCard summary={importedDataSummary} /> : <p className="text-sm text-slate-500">No wizard import has been applied yet.</p>}
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">To run a different KRS + BizRaport import, start a new valuation. This keeps the active model from mixing old source data with new assumptions.</div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">To run a different KRS + BizRaport import, start a new valuation. This keeps the active model from mixing old source data with new assumptions.</div>
             </CardContent>
           </Card>
           <Card>
@@ -1707,7 +1728,7 @@ export default function Home() {
           <Card>
             <CardHeader><CardTitle>Market Data Sources</CardTitle><CardDescription>WACC market inputs update automatically after company import or valuation start. Manual edits remain editable in WACC.</CardDescription></CardHeader>
             <CardContent className="space-y-5">
-              <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+              <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
                 <table className="w-full min-w-[760px] text-sm">
                   <thead><tr className="border-b bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500"><th className="p-3">Input</th><th className="p-3 text-right">Current value</th><th className="p-3">Source</th><th className="p-3">Source date / observation date</th><th className="p-3">Status</th><th className="p-3">Confidence</th></tr></thead>
                   <tbody>
@@ -1724,7 +1745,7 @@ export default function Home() {
                   </tbody>
                 </table>
               </div>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
                 <p className="text-sm font-semibold text-slate-950">Market multiples — manual for now</p>
                 <p className="mt-1 text-xs text-slate-600">EV/EBITDA and EV/Revenue are still manual assumptions and are not refreshed from Damodaran yet.</p>
                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -1732,7 +1753,7 @@ export default function Home() {
                   <OutputRow label="EV / Revenue" value={multiple(input.marketMultiples.evRevenueMultiple)} />
                 </div>
               </div>
-              <div className="rounded-2xl border border-teal-200 bg-teal-50 p-4 text-sm text-teal-900">Source summary is synced automatically when the model starts. Edit WACC assumptions directly if you want to override sourced inputs.</div>
+              <div className="rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm text-teal-900">Source summary is synced automatically when the model starts. Edit WACC assumptions directly if you want to override sourced inputs.</div>
               {marketData?.notes.length ? <p className="text-xs text-slate-500">{marketData.notes.join(" ")}</p> : null}
               <p className="text-xs text-slate-500">Configured market source adapters: {marketSources.map((source) => source.name).join(", ")}</p>
             </CardContent>
@@ -1831,7 +1852,7 @@ export default function Home() {
             <CardHeader><CardTitle>WACC Assumptions</CardTitle><CardDescription>Cost of equity = Rf + beta × ERP + size premium + CSRP.</CardDescription></CardHeader>
             <CardContent className="grid gap-3">
               <NumberField label="Risk-free rate" value={input.wacc.riskFreeRate} percent onChange={(v) => { setRiskFreeRateManuallyEdited(true); update(["wacc", "riskFreeRate"], v); }} />
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="font-semibold text-slate-950">Risk-free rate source</p>
@@ -1852,7 +1873,7 @@ export default function Home() {
                 {riskFreeRateStatus ? <p className="mt-3 text-xs text-slate-500">{riskFreeRateStatus}{riskFreeRateManuallyEdited && riskFreeRateSource?.value !== null ? " Manual risk-free rate edits are preserved unless you refresh explicitly." : ""}</p> : null}
               </div>
               <NumberField label="Equity risk premium" value={input.wacc.equityRiskPremium} percent onChange={(v) => { setErpManuallyEdited(true); update(["wacc", "equityRiskPremium"], v); }} />
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="font-semibold text-slate-950">Equity risk premium source</p>
@@ -1876,7 +1897,7 @@ export default function Home() {
                 {erpStatus ? <p className="mt-3 text-xs text-slate-500">{erpStatus}{erpManuallyEdited && erpSource?.value !== null ? " Manual ERP edits are preserved during refresh and imports." : ""}</p> : null}
               </div>
               <NumberField label="Beta" value={input.wacc.beta} onChange={(v) => { setBetaManuallyEdited(true); update(["wacc", "beta"], v); }} />
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="font-semibold text-slate-950">Beta source</p>
@@ -2243,7 +2264,7 @@ export default function Home() {
           </CardHeader>
           <CardContent className="space-y-5">
             {(["critical", "warning", "info"] as const).map((severity) => (
-              <div key={severity} className="rounded-2xl border border-slate-200 bg-white p-4">
+              <div key={severity} className="rounded-lg border border-slate-200 bg-white p-4">
                 <div className="mb-3 flex items-center justify-between">
                   <h4 className="text-sm font-bold uppercase tracking-wide text-slate-700">{severity}</h4>
                   <Badge>{model.diagnostics.bySeverity[severity].length}</Badge>

@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "SME DCF Valuation Model",
-  description: "Private company valuation MVP using DCF, WACC, bridge and sensitivity analysis.",
+  title: "Valuation Workbench",
+  description: "KRS-first private company valuation workbench for Polish SME analysis.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
