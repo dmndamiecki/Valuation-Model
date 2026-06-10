@@ -1,0 +1,44 @@
+{
+  "source": "Damodaran Country Risk Premiums",
+  "sourceUrl": "https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/ctryprem.html",
+  "sourceDate": "2026-01-05",
+  "dataCurrentUrl": "https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datacurrent.html",
+  "isLiveData": false,
+  "refreshStatus": "manual_seed",
+  "matureMarketErp": 4.23,
+  "countries": {
+    "Poland": {
+      "countryRiskPremium": 1.10,
+      "totalErp": 5.33,
+      "corporateTaxRate": 19.00
+    },
+    "United States": {
+      "countryRiskPremium": 0,
+      "totalErp": 4.23
+    },
+    "Germany": {
+      "countryRiskPremium": 0,
+      "totalErp": 4.23
+    },
+    "France": {
+      "countryRiskPremium": 0,
+      "totalErp": 4.23
+    },
+    "Italy": {
+      "countryRiskPremium": 0.75,
+      "totalErp": 4.98
+    },
+    "United Kingdom": {
+      "countryRiskPremium": 0,
+      "totalErp": 4.23
+    },
+    "Canada": {
+      "countryRiskPremium": 0,
+      "totalErp": 4.23
+    },
+    "Australia": {
+      "countryRiskPremium": 0,
+      "totalErp": 4.23
+    }
+  }
+}
