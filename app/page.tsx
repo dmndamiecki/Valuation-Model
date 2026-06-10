@@ -113,10 +113,11 @@ function WorkflowHeader({ id, eyebrow, title, description, status }: { id: strin
 }
 
 function WorkflowNav({ sections }: { sections: WorkflowSectionItem[] }) {
+  const displaySections = sections.filter((_section, index) => [0, 3, 5, 8, 9].includes(index));
   return (
     <nav className="sticky top-0 z-20 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-sm backdrop-blur">
       <div className="flex gap-2 overflow-x-auto pb-1">
-        {sections.map((section) => (
+        {displaySections.map((section) => (
           <a key={section.id} href={`#${section.id}`} className="flex min-w-max items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-teal-500 hover:text-teal-800">
             <span>{section.label}</span>
             <span className={`rounded-full px-2 py-0.5 ${statusClassName(section.status)}`}>{section.status}</span>
@@ -444,7 +445,6 @@ export default function Home() {
   const [combinedImportStatus, setCombinedImportStatus] = useState("");
   const [wizardImportApplied, setWizardImportApplied] = useState(false);
   const [importedDataSummary, setImportedDataSummary] = useState<ImportedDataSummary | null>(null);
-  const [showAdvancedImport, setShowAdvancedImport] = useState(false);
   const [riskFreeRateSource, setRiskFreeRateSource] = useState<FredRiskFreeRateResult | null>(null);
   const [riskFreeRateStatus, setRiskFreeRateStatus] = useState("");
   const [riskFreeRateManuallyEdited, setRiskFreeRateManuallyEdited] = useState(false);
@@ -1177,7 +1177,6 @@ export default function Home() {
     setCombinedImportStatus("");
     setWizardImportApplied(false);
     setImportedDataSummary(null);
-    setShowAdvancedImport(false);
     setRiskFreeRateSource(null);
     setRiskFreeRateStatus("");
     setRiskFreeRateManuallyEdited(false);
@@ -1362,24 +1361,24 @@ export default function Home() {
       <main className="min-h-screen px-6 py-8 lg:px-10">
         <section className="mx-auto max-w-5xl space-y-8">
           <div className="rounded-3xl border border-slate-200 bg-slate-950 p-8 text-white shadow-xl">
-            <Badge className="border-teal-400/30 bg-teal-400/10 text-teal-100">New valuation wizard</Badge>
-            <h1 className="mt-5 max-w-3xl text-4xl font-bold tracking-tight lg:text-5xl">Start a private company valuation</h1>
-            <p className="mt-4 max-w-3xl text-base leading-7 text-slate-300">Create a new local valuation workspace, choose the level of detail, and prefill the model before entering the analysis.</p>
+            <Badge className="border-teal-400/30 bg-teal-400/10 text-teal-100">Valuation setup</Badge>
+            <h1 className="mt-5 max-w-3xl text-4xl font-bold tracking-tight lg:text-5xl">Start with one company lookup</h1>
+            <p className="mt-4 max-w-3xl text-base leading-7 text-slate-300">Enter KRS, import what is available, then choose a quick estimate or the full workbench. You can skip import and type numbers manually.</p>
           </div>
 
           <div className="grid gap-3 md:grid-cols-3">
             {[1, 2, ...(wizardImportApplied && companyData?.years.length ? [] : [3])].map((step) => (
               <button key={step} className={`rounded-2xl border p-4 text-left text-sm font-semibold transition ${wizardStep === step ? "border-teal-600 bg-teal-50 text-teal-900" : "border-slate-200 bg-white text-slate-700 hover:border-teal-400"}`} onClick={() => setWizardStep(step as 1 | 2 | 3)}>
                 <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Step {step}</span>
-                <span className="mt-1 block">{step === 1 ? "Company data import" : step === 2 ? "Valuation type" : "Manual financial starting point"}</span>
+                <span className="mt-1 block">{step === 1 ? "Company lookup" : step === 2 ? "Valuation path" : "Manual numbers"}</span>
               </button>
             ))}
           </div>
 
           <Card>
             <CardHeader>
-              <CardTitle>{wizardStep === 1 ? "Step 1: Company data import" : wizardStep === 2 ? "Step 2: Valuation type" : "Step 3: Manual financial starting point"}</CardTitle>
-              <CardDescription>{wizardStep === 1 ? "Enter a Polish KRS once, fetch registry and financial data together, review the combined preview, and import once." : wizardStep === 2 ? "Choose a three-minute owner estimate or the full professional workflow." : "Use manual financial inputs only when imported financials are unavailable or skipped."}</CardDescription>
+              <CardTitle>{wizardStep === 1 ? "Step 1: Find the company" : wizardStep === 2 ? "Step 2: Choose the workflow" : "Step 3: Enter core numbers"}</CardTitle>
+              <CardDescription>{wizardStep === 1 ? "Use one KRS lookup to fetch Public KRS profile data and BizRaport financial ranges where available." : wizardStep === 2 ? "Choose the quick owner estimate or the full professional workbench." : "Use manual inputs only when imported financials are unavailable or skipped."}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               {wizardStep === 1 && (
@@ -1394,10 +1393,10 @@ export default function Home() {
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div>
-                        <p className="text-sm font-bold text-slate-950">Combined company data fetch</p>
-                        <p className="mt-1 text-sm text-slate-600">Fetch Public KRS profile, BizRaport financials, PKD industry suggestion, and generated forecast assumptions in one flow. Partial results are allowed.</p>
+                        <p className="text-sm font-bold text-slate-950">One-click company lookup</p>
+                        <p className="mt-1 text-sm text-slate-600">Fetch registry details, BizRaport financial ranges, PKD industry suggestion, and initial forecast assumptions in one place.</p>
                       </div>
-                      <button className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={fetchCombinedCompanyData}>Fetch company data</button>
+                      <button className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={fetchCombinedCompanyData}>Fetch KRS + BizRaport</button>
                     </div>
                     {combinedImportStatus ? <p className="mt-3 text-sm text-slate-600">{combinedImportStatus}</p> : null}
                   </div>
@@ -1411,12 +1410,12 @@ export default function Home() {
                   {importedDataSummary ? <ImportedDataSummaryCard summary={importedDataSummary} /> : null}
                   <div className="grid gap-4 md:grid-cols-2">
                     <button className={`rounded-2xl border p-5 text-left transition ${wizardInput.valuationType === "simple" ? "border-teal-700 bg-teal-50" : "border-slate-200 bg-white hover:border-teal-500"}`} onClick={() => updateWizard("valuationType", "simple")}>
-                      <p className="text-lg font-bold text-slate-950">Simple valuation</p>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">Fast indicative estimate for small business owners using default assumptions.</p>
+                      <p className="text-lg font-bold text-slate-950">Quick estimate</p>
+                      <p className="mt-2 text-sm leading-6 text-slate-600">A short owner-style valuation using imported or manually entered core numbers.</p>
                     </button>
                     <button className={`rounded-2xl border p-5 text-left transition ${wizardInput.valuationType === "professional" ? "border-slate-950 bg-slate-50" : "border-slate-200 bg-white hover:border-slate-500"}`} onClick={() => updateWizard("valuationType", "professional")}>
-                      <p className="text-lg font-bold text-slate-950">Professional valuation</p>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">Full multi-section workflow with historicals, normalization, WACC, DCF, market approach, diagnostics, and exports.</p>
+                      <p className="text-lg font-bold text-slate-950">Full workbench</p>
+                      <p className="mt-2 text-sm leading-6 text-slate-600">Detailed workflow for historicals, normalization, forecast, WACC, DCF, diagnostics, and exports.</p>
                     </button>
                   </div>
                   {wizardImportApplied && companyData?.years.length ? <Badge className="border-teal-200 bg-teal-50 text-teal-800">Financials imported — Step 3 will be skipped</Badge> : <p className="text-sm text-slate-500">No imported financial years are available yet, so the wizard will ask for a manual financial starting point.</p>}
@@ -1437,7 +1436,7 @@ export default function Home() {
               <div className="flex flex-col gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:items-center sm:justify-between">
                 <button className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-teal-600 hover:text-teal-800" onClick={() => setWizardStep((current) => (current === 1 ? 1 : ((current - 1) as 1 | 2 | 3)))}>Back</button>
                 <div className="flex gap-3">
-                  {wizardStep === 1 && <button className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={() => setWizardStep(2)}>Continue</button>}
+                  {wizardStep === 1 && <button className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={() => setWizardStep(2)}>Skip lookup</button>}
                   {wizardStep === 2 && (wizardImportApplied && companyData?.years.length ? <button className="rounded-xl bg-teal-700 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={startValuation}>Start valuation</button> : <button className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={() => setWizardStep(3)}>Continue</button>)}
                   {wizardStep === 3 && <button className="rounded-xl bg-teal-700 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={startValuation}>Start valuation</button>}
                 </div>
@@ -1455,10 +1454,10 @@ export default function Home() {
         <div className="rounded-3xl border border-slate-200 bg-slate-950 p-8 text-white shadow-xl">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <Badge className="border-teal-400/30 bg-teal-400/10 text-teal-100">DCF valuation MVP</Badge>
-              <h1 className="mt-5 max-w-4xl text-4xl font-bold tracking-tight lg:text-5xl">SME private company valuation model</h1>
+              <Badge className="border-teal-400/30 bg-teal-400/10 text-teal-100">Private SME valuation workbench</Badge>
+              <h1 className="mt-5 max-w-4xl text-4xl font-bold tracking-tight lg:text-5xl">Valuation workspace</h1>
               <p className="mt-4 max-w-3xl text-base leading-7 text-slate-300">
-                Local-only Next.js model with Zod validation, transparent assumptions, pure valuation functions, and an investor-ready output bridge from enterprise value to adjusted equity value.
+                Work through company data, forecast, WACC, DCF, market cross-checks, diagnostics, and export in one guided flow.
               </p>
             </div>
             <div className="grid gap-3 text-sm text-slate-300">
@@ -1473,8 +1472,8 @@ export default function Home() {
         <Card className="border-slate-300 bg-white/90">
           <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Valuation workflow mode</p>
-              <p className="mt-1 text-sm text-slate-600">Choose a fast owner estimate or the full professional due-diligence workflow.</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Workflow</p>
+              <p className="mt-1 text-sm text-slate-600">Switch between a quick estimate and the full workbench.</p>
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
               <button className={`rounded-xl border px-5 py-3 text-sm font-semibold transition ${mode === "simple" ? "border-teal-700 bg-teal-700 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-teal-600"}`} onClick={() => switchMode("simple")}>Simple Mode</button>
@@ -1487,7 +1486,7 @@ export default function Home() {
           <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
             <Card>
               <CardHeader>
-                <CardTitle>Simple valuation inputs</CardTitle>
+                <CardTitle>Quick estimate inputs</CardTitle>
                 <CardDescription>Enter the core information needed for a three-minute indicative SME valuation. Advanced assumptions are auto-filled and still run through the same DCF valuation engine.</CardDescription>
               </CardHeader>
               <CardContent className="grid gap-4 md:grid-cols-2">
@@ -1497,8 +1496,7 @@ export default function Home() {
                 <div className="space-y-1.5"><Label>Industry</Label><Input value={simpleInput.industry} onChange={(event) => updateSimple("industry", event.target.value)} /></div>
                 <div className="space-y-1.5"><Label>Registration Number</Label><Input value={simpleInput.registrationNumber} onChange={(event) => updateSimple("registrationNumber", event.target.value)} /></div>
                 {importedDataSummary ? <div className="md:col-span-2"><ImportedDataSummaryCard summary={importedDataSummary} /></div> : null}
-                <div className="md:col-span-2"><button className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-teal-600 hover:text-teal-800" onClick={() => setShowAdvancedImport((current) => !current)}>{showAdvancedImport ? "Hide re-import company data" : "Re-import company data"}</button></div>
-                {showAdvancedImport ? <div className="space-y-3 rounded-2xl border border-teal-100 bg-teal-50/60 p-4 md:col-span-2"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold text-slate-950">Advanced company import</p><p className="text-xs text-slate-600">Fetch profile data from Public KRS or financials from BizRaport. Review previews before applying.</p></div><div className="flex flex-wrap gap-2"><button className="rounded-xl border border-teal-200 bg-white px-4 py-2 text-sm font-semibold text-teal-800 transition hover:border-teal-700" onClick={() => fetchKrsProfile(simpleInput.registrationNumber)}>Fetch public KRS profile</button><button className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-teal-600 hover:text-teal-800" onClick={() => fetchBizRaportData(simpleInput.registrationNumber)}>Fetch financials from BizRaport</button></div></div>{krsStatus && <p className="text-sm text-slate-600">{krsStatus}</p>}{bizRaportStatus && <p className="text-sm text-slate-600">{bizRaportStatus}</p>}{krsProfile ? <KrsProfilePreview profile={krsProfile} onApply={applyKrsProfile} /> : null}{companyData ? <BizRaportFinancialPreview data={companyData} currency={input.profile.currency} onApply={applyImportedCompanyData} /> : null}</div> : null}
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 md:col-span-2">Company import now lives in the setup wizard. Use "Start new valuation" if you want to run a fresh KRS + BizRaport lookup.</div>
                 <div className="md:col-span-2"><PkdSuggestionPanel suggestion={activePkdSuggestion} onApply={() => applySuggestedIndustryTemplate(activePkdSuggestion)} /></div>
                 {forecastAutoSeeded ? <div className="md:col-span-2"><Badge className="border-teal-200 bg-teal-50 text-teal-800">Auto-generated from historical financials</Badge>{forecastSeedNotes.map((note) => <p key={note} className="mt-2 text-xs text-slate-500">{note}</p>)}</div> : null}
                 <NumberField label="Latest revenue" value={simpleInput.latestRevenue} onChange={(value) => updateSimple("latestRevenue", value)} />
@@ -1592,22 +1590,14 @@ export default function Home() {
             </CardContent>
           </Card>
           <Card>
-            <CardHeader><CardTitle>{importedDataSummary ? "Imported Data" : "Company Imports"}</CardTitle><CardDescription>{importedDataSummary ? "Wizard import results are summarized here. Use advanced re-import only when needed." : "Optional registry and financial-data imports. Market data remains separate below."}</CardDescription></CardHeader>
+            <CardHeader><CardTitle>Imported Data</CardTitle><CardDescription>Source data is imported in the setup wizard so the workbench stays focused on valuation decisions.</CardDescription></CardHeader>
             <CardContent className="space-y-5">
               <div>
                 <h3 className="text-sm font-bold uppercase tracking-wide text-slate-600">Company data</h3>
                 <p className="mt-1 text-sm text-slate-500">Available source mapping: {companySources.map((source) => source.name).join(", ") || "No mapped source"}</p>
               </div>
               {importedDataSummary ? <ImportedDataSummaryCard summary={importedDataSummary} /> : <p className="text-sm text-slate-500">No wizard import has been applied yet.</p>}
-              <button className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-teal-600 hover:text-teal-800" onClick={() => setShowAdvancedImport((current) => !current)}>{showAdvancedImport ? "Hide re-import company data" : "Re-import company data"}</button>
-              {showAdvancedImport ? (
-                <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="space-y-3 rounded-2xl border border-teal-100 bg-teal-50/60 p-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold text-slate-950">Public KRS profile</p><p className="text-xs text-slate-600">Public KRS API provides registry data only. Financial statement data still requires manual input or an external financial-data provider.</p></div><button className="rounded-xl border border-teal-200 bg-white px-4 py-3 text-sm font-semibold text-teal-800 shadow-sm transition hover:border-teal-700" onClick={() => fetchKrsProfile(input.profile.registrationNumber)}>Fetch public KRS profile</button></div>{krsStatus && <p className="text-sm text-slate-600">{krsStatus}</p>}{krsProfile ? <KrsProfilePreview profile={krsProfile} onApply={applyKrsProfile} /> : null}</div>
-                  <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold text-slate-950">BizRaport financial import</p><p className="text-xs text-slate-600">Optional financial-data provider. Credentials stay on the server.</p></div><button className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={() => fetchBizRaportData()}>Fetch financials from BizRaport</button></div>
-                    {companyData ? <BizRaportFinancialPreview data={companyData} currency={input.profile.currency} onApply={applyImportedCompanyData} /> : <p className="text-sm text-slate-500">No imported BizRaport financial preview yet.</p>}
-                  </div>
-                </div>
-              ) : null}
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">To run a different KRS + BizRaport import, start a new valuation. This keeps the active model from mixing old source data with new assumptions.</div>
             </CardContent>
           </Card>
           <Card>
@@ -1883,7 +1873,7 @@ export default function Home() {
         <div className="space-y-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <Badge>Professional valuation output</Badge>
+              <Badge>Valuation output</Badge>
               <h2 className="mt-3 text-2xl font-bold text-slate-950">Investment committee summary</h2>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">A finance-ready output pack with headline valuation metrics, detailed DCF mechanics, terminal value support, bridge schedules, private company adjustments, automated methodology warnings, and exportable report files.</p>
             </div>
