@@ -1,11 +1,13 @@
 import { calculateEquityBridge } from "./bridge";
 import { calculateDcf } from "./dcf";
 import { forecastFinancials, normalizeLatestEbitda, sumNormalizationAdjustments } from "./forecast";
+import { calculateMarketValuation } from "./multiples";
 import type { ValuationInput } from "./types";
 import { calculateWacc } from "./wacc";
 
 export type DiagnosticSeverity = "info" | "warning" | "critical";
-export type DiagnosticArea = "Forecast" | "WACC" | "Terminal Value" | "Bridge" | "Discounts" | "Normalization";
+export type DiagnosticArea = "Forecast" | "WACC" | "Terminal Value" | "Bridge" | "Discounts" | "Normalization" | "Market Approach" | "Sources";
+export type ReadinessPosture = "review-ready" | "screen-grade" | "not-decision-ready";
 
 export type ValuationDiagnostic = {
   code: string;
@@ -15,11 +17,22 @@ export type ValuationDiagnostic = {
   suggestedAction: string;
 };
 
+export type ReadinessAssessment = {
+  posture: ReadinessPosture;
+  calculationIntegrity: "pass" | "warning" | "fail";
+  decisionReadiness: "review-ready" | "screen-grade" | "not-decision-ready";
+  headline: string;
+  blockers: string[];
+  caveats: string[];
+  nextActions: string[];
+};
+
 export type DiagnosticsSummary = {
   diagnostics: ValuationDiagnostic[];
   bySeverity: Record<DiagnosticSeverity, ValuationDiagnostic[]>;
   warningCount: number;
   criticalCount: number;
+  readiness: ReadinessAssessment;
 };
 
 function safeDivide(numerator: number, denominator: number): number {
@@ -34,6 +47,31 @@ function calculateRevenueCagr(startRevenue: number, endRevenue: number, years: n
   return Math.pow(endRevenue / startRevenue, 1 / years) - 1;
 }
 
+function isBlank(value: string): boolean {
+  return value.trim().length === 0;
+}
+
+function buildReadinessAssessment(diagnostics: ValuationDiagnostic[]): ReadinessAssessment {
+  const critical = diagnostics.filter((diagnostic) => diagnostic.severity === "critical");
+  const warnings = diagnostics.filter((diagnostic) => diagnostic.severity === "warning");
+  const sourceWarnings = diagnostics.filter((diagnostic) => diagnostic.area === "Sources" || diagnostic.code.includes("MANUAL") || diagnostic.code.includes("MISSING"));
+  const calculationIntegrity = critical.length > 0 ? "fail" : warnings.length > 0 ? "warning" : "pass";
+  const decisionReadiness: ReadinessAssessment["decisionReadiness"] =
+    critical.length > 0 ? "not-decision-ready" : sourceWarnings.length > 0 || warnings.length > 0 ? "screen-grade" : "review-ready";
+  const posture: ReadinessPosture = decisionReadiness;
+  const blockers = critical.map((diagnostic) => `${diagnostic.area}: ${diagnostic.message}`);
+  const caveats = warnings.map((diagnostic) => `${diagnostic.area}: ${diagnostic.message}`);
+  const nextActions = (critical.length > 0 ? critical : warnings).slice(0, 5).map((diagnostic) => diagnostic.suggestedAction);
+  const headline =
+    posture === "not-decision-ready"
+      ? "Calculation or assumption issues prevent decision use until remediated."
+      : posture === "screen-grade"
+        ? "Model calculates, but source support or assumption quality limits the output to screening use."
+        : "No critical or warning diagnostics are currently triggered; output is ready for review subject to source evidence.";
+
+  return { posture, calculationIntegrity, decisionReadiness, headline, blockers, caveats, nextActions };
+}
+
 function buildSummary(diagnostics: ValuationDiagnostic[]): DiagnosticsSummary {
   const bySeverity: Record<DiagnosticSeverity, ValuationDiagnostic[]> = {
     critical: diagnostics.filter((diagnostic) => diagnostic.severity === "critical"),
@@ -46,6 +84,7 @@ function buildSummary(diagnostics: ValuationDiagnostic[]): DiagnosticsSummary {
     bySeverity,
     warningCount: bySeverity.warning.length,
     criticalCount: bySeverity.critical.length,
+    readiness: buildReadinessAssessment(diagnostics),
   };
 }
 
@@ -60,6 +99,14 @@ export function calculateValuationDiagnostics(input: ValuationInput): Diagnostic
   const wacc = calculateWacc({ ...input.wacc, taxRate: input.forecast.taxRate });
   const dcf = calculateDcf(forecastYears, wacc.wacc, input.terminalValue);
   const bridge = calculateEquityBridge(dcf.enterpriseValue, input.bridge);
+  const marketValuation = calculateMarketValuation(
+    input.historicals,
+    input.normalizationAdjustments,
+    input.bridge,
+    input.marketMultiples,
+    dcf.enterpriseValue,
+    bridge.equityValue,
+  );
   const latestHistorical = input.historicals[input.historicals.length - 1];
   const finalForecast = forecastYears[forecastYears.length - 1];
   const revenueCagr = calculateRevenueCagr(latestHistorical.revenue, finalForecast.revenue, forecastYears.length);
@@ -71,6 +118,49 @@ export function calculateValuationDiagnostics(input: ValuationInput): Diagnostic
     Math.abs(sumNormalizationAdjustments(input.normalizationAdjustments)),
     Math.abs(latestHistorical.ebitda),
   );
+  const terminalSpread = wacc.wacc - input.terminalValue.perpetualGrowthRate;
+  const historicalYears = input.historicals.map((year) => year.year);
+  const historicalYearsAreSequential = historicalYears.every((year, index) => index === 0 || year === historicalYears[index - 1] + 1);
+
+  if (isBlank(input.profile.companyName) || isBlank(input.profile.industry)) {
+    diagnostics.push({
+      code: "MISSING_COMPANY_CONTEXT",
+      severity: "critical",
+      area: "Sources",
+      message: "Company name or industry is missing.",
+      suggestedAction: "Complete the company profile before relying on valuation output.",
+    });
+  }
+
+  if (isBlank(input.profile.registrationNumber) && isBlank(input.profile.nip) && isBlank(input.profile.regon)) {
+    diagnostics.push({
+      code: "MISSING_REGISTRY_IDENTIFIER",
+      severity: "warning",
+      area: "Sources",
+      message: "No KRS, NIP, REGON, or equivalent identifier is captured.",
+      suggestedAction: "Add a registry identifier or explicitly label the company profile as manually sourced.",
+    });
+  }
+
+  if (!historicalYearsAreSequential) {
+    diagnostics.push({
+      code: "HISTORICAL_YEARS_NOT_SEQUENTIAL",
+      severity: "warning",
+      area: "Sources",
+      message: "Historical financial years are not sequential.",
+      suggestedAction: "Verify imported periods and align the historical base before forecasting.",
+    });
+  }
+
+  if (input.historicals.every((year) => year.revenue === 0 && year.ebitda === 0)) {
+    diagnostics.push({
+      code: "MISSING_HISTORICAL_FINANCIALS",
+      severity: "critical",
+      area: "Sources",
+      message: "Historical revenue and EBITDA are blank across all periods.",
+      suggestedAction: "Import or enter historical financial statements before using the model.",
+    });
+  }
 
   if (revenueCagr > 0.3) {
     diagnostics.push({
@@ -98,7 +188,7 @@ export function calculateValuationDiagnostics(input: ValuationInput): Diagnostic
         code: `EBITDA_MARGIN_BELOW_5_PERCENT_${year.year}`,
         severity: "warning",
         area: "Forecast",
-        message: `${year.year} EBITDA margin is ${(year.ebitdaMargin * 100).toFixed(1)}%, below 5%.`,
+        message: `${year.year} EBITDA margin is ${(year.ebitdaMargin * 100).toFixed(1)}%, below 5%.",
         suggestedAction: "Confirm the business is not structurally under-earning or model a turnaround case separately.",
       });
     }
@@ -109,7 +199,7 @@ export function calculateValuationDiagnostics(input: ValuationInput): Diagnostic
         code: `CAPEX_SALES_BELOW_1_PERCENT_${year.year}`,
         severity: "warning",
         area: "Forecast",
-        message: `${year.year} CAPEX / Sales is ${(capexToSales * 100).toFixed(1)}%, below 1%.`,
+        message: `${year.year} CAPEX / Sales is ${(capexToSales * 100).toFixed(1)}%, below 1%.",
         suggestedAction: "Review maintenance capex needs and ensure the forecast does not understate reinvestment.",
       });
     }
@@ -119,7 +209,7 @@ export function calculateValuationDiagnostics(input: ValuationInput): Diagnostic
         code: `CAPEX_SALES_ABOVE_20_PERCENT_${year.year}`,
         severity: "warning",
         area: "Forecast",
-        message: `${year.year} CAPEX / Sales is ${(capexToSales * 100).toFixed(1)}%, above 20%.`,
+        message: `${year.year} CAPEX / Sales is ${(capexToSales * 100).toFixed(1)}%, above 20%.",
         suggestedAction: "Verify whether elevated capex is temporary growth capex or should be modeled as a separate investment program.",
       });
     }
@@ -129,7 +219,7 @@ export function calculateValuationDiagnostics(input: ValuationInput): Diagnostic
         code: `NEGATIVE_FCFF_${year.year}`,
         severity: "critical",
         area: "Forecast",
-        message: `${year.year} FCFF is negative.`,
+        message: `${year.year} FCFF is negative.",
         suggestedAction: "Review margin, tax, capex, and working-capital assumptions; consider whether additional financing is required.",
       });
     }
@@ -140,7 +230,7 @@ export function calculateValuationDiagnostics(input: ValuationInput): Diagnostic
       code: "WACC_BELOW_8_PERCENT",
       severity: "critical",
       area: "WACC",
-      message: `WACC is ${(wacc.wacc * 100).toFixed(1)}%, below 8%.`,
+      message: `WACC is ${(wacc.wacc * 100).toFixed(1)}%, below 8%.",
       suggestedAction: "Revisit private-company risk, size premium, company-specific risk, beta, and debt cost assumptions.",
     });
   }
@@ -150,8 +240,18 @@ export function calculateValuationDiagnostics(input: ValuationInput): Diagnostic
       code: "WACC_ABOVE_30_PERCENT",
       severity: "critical",
       area: "WACC",
-      message: `WACC is ${(wacc.wacc * 100).toFixed(1)}%, above 30%.`,
+      message: `WACC is ${(wacc.wacc * 100).toFixed(1)}%, above 30%.",
       suggestedAction: "Confirm the discount rate reflects a going-concern DCF rather than a distressed or venture-style return case.",
+    });
+  }
+
+  if (input.wacc.companySpecificRiskPremium > 0.05 && (input.discounts.keyPersonDiscount > 0 || input.discounts.customerConcentrationDiscount > 0)) {
+    diagnostics.push({
+      code: "RISK_PREMIUM_AND_DISCOUNTS_OVERLAP",
+      severity: "warning",
+      area: "Discounts",
+      message: "Company-specific risk premium is above 5% while private-company discounts are also applied.",
+      suggestedAction: "Confirm key-person, customer concentration, and marketability risks are not double-counted in both WACC and equity discounts.",
     });
   }
 
@@ -160,8 +260,18 @@ export function calculateValuationDiagnostics(input: ValuationInput): Diagnostic
       code: "TERMINAL_GROWTH_ABOVE_3_PERCENT",
       severity: "warning",
       area: "Terminal Value",
-      message: `Terminal growth is ${(input.terminalValue.perpetualGrowthRate * 100).toFixed(1)}%, above 3%.`,
+      message: `Terminal growth is ${(input.terminalValue.perpetualGrowthRate * 100).toFixed(1)}%, above 3%.",
       suggestedAction: "Benchmark perpetual growth against long-term inflation and GDP expectations; consider reducing terminal growth.",
+    });
+  }
+
+  if (terminalSpread < 0.02) {
+    diagnostics.push({
+      code: "TERMINAL_SPREAD_BELOW_200_BPS",
+      severity: terminalSpread <= 0 ? "critical" : "warning",
+      area: "Terminal Value",
+      message: `WACC less terminal growth spread is ${(terminalSpread * 100).toFixed(1)}%.",
+      suggestedAction: "Increase discount-rate support, reduce terminal growth, or use the exit multiple method until the terminal spread is defensible.",
     });
   }
 
@@ -170,7 +280,7 @@ export function calculateValuationDiagnostics(input: ValuationInput): Diagnostic
       code: "TERMINAL_VALUE_CONTRIBUTION_ABOVE_85_PERCENT",
       severity: "warning",
       area: "Terminal Value",
-      message: `PV of terminal value is ${(terminalValueContribution * 100).toFixed(1)}% of enterprise value, above 85%.`,
+      message: `PV of terminal value is ${(terminalValueContribution * 100).toFixed(1)}% of enterprise value, above 85%.",
       suggestedAction: "Extend the explicit forecast period, reduce terminal assumptions, or add support for steady-state economics.",
     });
   }
@@ -190,7 +300,7 @@ export function calculateValuationDiagnostics(input: ValuationInput): Diagnostic
       code: "DEBT_TO_EBITDA_ABOVE_4X",
       severity: "critical",
       area: "Bridge",
-      message: `Debt-like items / normalized EBITDA is ${debtToEbitda.toFixed(1)}x, above 4.0x.`,
+      message: `Debt-like items / normalized EBITDA is ${debtToEbitda.toFixed(1)}x, above 4.0x.",
       suggestedAction: "Review debt-like items and assess whether leverage creates solvency, refinancing, or equity impairment risk.",
     });
   }
@@ -200,7 +310,7 @@ export function calculateValuationDiagnostics(input: ValuationInput): Diagnostic
       code: "NORMALIZATION_ADJUSTMENT_ABOVE_30_PERCENT_EBITDA",
       severity: "warning",
       area: "Normalization",
-      message: `Normalization adjustments equal ${(normalizationAdjustmentRatio * 100).toFixed(1)}% of reported EBITDA, above 30%.`,
+      message: `Normalization adjustments equal ${(normalizationAdjustmentRatio * 100).toFixed(1)}% of reported EBITDA, above 30%.",
       suggestedAction: "Support each adjustment with evidence and consider a sensitivity excluding less certain add-backs.",
     });
   }
@@ -210,7 +320,7 @@ export function calculateValuationDiagnostics(input: ValuationInput): Diagnostic
       code: "DLOM_ABOVE_30_PERCENT",
       severity: "warning",
       area: "Discounts",
-      message: `DLOM is ${(input.discounts.lackOfMarketability * 100).toFixed(1)}%, above 30%.`,
+      message: `DLOM is ${(input.discounts.lackOfMarketability * 100).toFixed(1)}%, above 30%.",
       suggestedAction: "Benchmark the marketability discount against observed transaction restrictions and expected holding period.",
     });
   }
@@ -220,7 +330,7 @@ export function calculateValuationDiagnostics(input: ValuationInput): Diagnostic
       code: "CUSTOMER_CONCENTRATION_DISCOUNT_ABOVE_10_PERCENT",
       severity: "warning",
       area: "Discounts",
-      message: `Customer concentration discount is ${(input.discounts.customerConcentrationDiscount * 100).toFixed(1)}%, above 10%.`,
+      message: `Customer concentration discount is ${(input.discounts.customerConcentrationDiscount * 100).toFixed(1)}%, above 10%.",
       suggestedAction: "Validate customer revenue concentration, contract durability, churn risk, and mitigation plans.",
     });
   }
@@ -230,8 +340,28 @@ export function calculateValuationDiagnostics(input: ValuationInput): Diagnostic
       code: "KEY_PERSON_DISCOUNT_ABOVE_10_PERCENT",
       severity: "warning",
       area: "Discounts",
-      message: `Key person discount is ${(input.discounts.keyPersonDiscount * 100).toFixed(1)}%, above 10%.`,
+      message: `Key person discount is ${(input.discounts.keyPersonDiscount * 100).toFixed(1)}%, above 10%.",
       suggestedAction: "Review management depth, succession planning, employment agreements, and transferability of relationships.",
+    });
+  }
+
+  for (const diagnostic of marketValuation.diagnostics) {
+    diagnostics.push({
+      code: diagnostic.code,
+      severity: diagnostic.severity,
+      area: "Market Approach",
+      message: diagnostic.message,
+      suggestedAction: diagnostic.suggestedAction,
+    });
+  }
+
+  if (input.marketMultiples.evEbitdaMultiple > 12 || input.marketMultiples.evRevenueMultiple > 4) {
+    diagnostics.push({
+      code: "MARKET_MULTIPLE_ABOVE_SME_SCREENING_RANGE",
+      severity: "warning",
+      area: "Market Approach",
+      message: "Selected market multiple is high for an SME screening valuation.",
+      suggestedAction: "Document peer comparability, growth/margin support, and whether the multiple reflects strategic-control evidence rather than public trading evidence.",
     });
   }
 
