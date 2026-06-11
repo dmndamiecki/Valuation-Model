@@ -17,9 +17,9 @@ export const dataSources: DataSource[] = [
     category: "company",
     sourceUrl: "https://www.bizraport.pl/",
     fetchStatus: "idle",
-    description: "Server-side company registry and financial-statement source. Requires BIZRAPORT_EMAIL and BIZRAPORT_API_KEY environment variables.",
+    description: "Server-side company registry, financial-statement and Polish SME catalog benchmark source. Requires BIZRAPORT_EMAIL and BIZRAPORT_API_KEY environment variables.",
     supportedIdentifiers: ["KRS", "NIP", "REGON"],
-    supportedFields: ["Company profile", "Imported financial years", "Revenue", "EBITDA", "Cash", "Debt"],
+    supportedFields: ["Company profile", "Imported financial years", "Revenue", "EBITDA", "Balance sheet ranges", "Polish SME peer KRS screen", "Peer benchmark sample"],
   },
   {
     id: "companies-house",

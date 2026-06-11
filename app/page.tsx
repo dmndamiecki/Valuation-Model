@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertCircle, Building2, Calculator, Database, LineChart as LineChartIcon, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { Activity, AlertCircle, AlertTriangle, ArrowRight, Building2, Calculator, CheckCircle2, Database, FileDown, Gauge, Layers3, LineChart as LineChartIcon, Search, ShieldCheck, SlidersHorizontal } from "lucide-react";
 import {
   Area,
   AreaChart,
@@ -48,6 +48,8 @@ import { buildValuationInputFromSimpleMode, simpleInputFromValuationInput, type 
 import { buildCenteredSensitivityCases, buildSensitivityTable } from "@/lib/valuation/sensitivity";
 import { valuationInputSchema, type ValuationInput } from "@/lib/valuation/types";
 import { calculateWacc } from "@/lib/valuation/wacc";
+import { applyImportedBalanceSheet } from "@/lib/valuation/balance-sheet-import";
+import { runValuationEngines, type BlendedValuationRange, type ValuationEngineId, type ValuationEngineResult } from "@/lib/valuation/engine-runner";
 
 type PercentArrayKey = "revenueGrowth" | "ebitdaMargin" | "depreciationPctRevenue" | "capexPctRevenue";
 type ValuationMode = "simple" | "professional";
@@ -126,7 +128,7 @@ function DataReadinessPanel({ items, score }: { items: DataReadinessItem[]; scor
       </CardHeader>
       <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         {items.map((item) => (
-          <div key={item.label} className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-4">
+          <div key={item.label} className="min-w-0 rounded-lg border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-4 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="min-w-0 text-sm font-semibold text-slate-950">{item.label}</p>
               <Badge className={`${dataReadinessClassName(item.status)} shrink-0`}>{item.status}</Badge>
@@ -141,11 +143,11 @@ function DataReadinessPanel({ items, score }: { items: DataReadinessItem[]; scor
 
 function WorkflowHeader({ id, eyebrow, title, description, status }: { id: string; eyebrow: string; title: string; description: string; status: WorkflowStatus }) {
   return (
-    <div id={id} className="scroll-mt-28 border-b border-slate-200 pb-3 pt-5">
+    <div id={id} className="scroll-mt-28 border-b border-slate-300 pb-4 pt-7">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">{eyebrow}</p>
-          <h2 className="mt-1 text-xl font-bold tracking-tight text-slate-950">{title}</h2>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-teal-700">{eyebrow}</p>
+          <h2 className="mt-1 text-2xl font-bold tracking-tight text-slate-950">{title}</h2>
           <p className="mt-1 text-sm leading-6 text-slate-600">{description}</p>
         </div>
         <StatusBadge status={status} />
@@ -157,10 +159,10 @@ function WorkflowHeader({ id, eyebrow, title, description, status }: { id: strin
 function WorkflowNav({ sections }: { sections: WorkflowSectionItem[] }) {
   const displaySections = sections.filter((_section, index) => [0, 3, 5, 8, 9].includes(index));
   return (
-    <nav className="sticky top-0 z-20 rounded-lg border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur">
+    <nav className="sticky top-3 z-20 rounded-lg border border-slate-300 bg-white/92 p-2 shadow-[0_18px_42px_rgba(15,23,42,0.10)] backdrop-blur">
       <div className="flex gap-2 overflow-x-auto pb-1">
         {displaySections.map((section) => (
-          <a key={section.id} href={`#${section.id}`} className="flex min-w-max items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-teal-500 hover:text-teal-800">
+          <a key={section.id} href={`#${section.id}`} className="flex min-w-max items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 transition hover:border-teal-500 hover:bg-white hover:text-teal-800">
             <span>{section.label}</span>
             <span className={`rounded-full px-2 py-0.5 ${statusClassName(section.status)}`}>{section.status}</span>
           </a>
@@ -181,6 +183,14 @@ type ScalarPath =
 
 const currencyFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 const percentFormatter = new Intl.NumberFormat("en-US", { style: "percent", minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const chartAxisStyle = { fill: "#64748b", fontSize: 12, fontWeight: 600 };
+const chartGridColor = "#d8e1e7";
+const chartTooltipStyle = {
+  border: "1px solid #d8e1e7",
+  borderRadius: 10,
+  boxShadow: "0 16px 40px rgba(15, 23, 42, 0.12)",
+  color: "#0f172a",
+};
 
 function money(value: number, currency = "USD") {
   return Number.isFinite(value) ? `${currency} ${currencyFormatter.format(value)}` : "N/M";
@@ -393,10 +403,10 @@ function ImportedDataSummaryCard({ summary }: { summary: ImportedDataSummary }) 
 
 function MetricCard({ label, value, helper }: { label: string; value: string; helper: string }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{label}</p>
-      <p className="mt-3 text-2xl font-bold text-slate-950">{value}</p>
-      <p className="mt-2 text-sm text-slate-500">{helper}</p>
+    <div className="min-w-0 rounded-lg border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-5 shadow-sm">
+      <p className="text-[0.7rem] font-bold uppercase tracking-[0.12em] text-slate-500">{label}</p>
+      <p className="mt-3 break-words text-2xl font-bold leading-tight text-slate-950">{value}</p>
+      <p className="mt-2 text-sm leading-5 text-slate-500">{helper}</p>
     </div>
   );
 }
@@ -420,7 +430,7 @@ function ValuationRangePanel({
   const basePosition = Math.min(Math.max(((base - low) / range) * 100, 0), 100);
 
   return (
-    <Card className="border-slate-300 bg-white">
+    <Card className="overflow-hidden border-slate-300 bg-white">
       <CardHeader>
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
@@ -437,17 +447,17 @@ function ValuationRangePanel({
             ["Base case", money(base, currency), "Current model output"],
             ["Upside", money(high, currency), "Bull adjusted equity"],
           ].map(([label, value, helper]) => (
-            <div key={label} className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">{label}</p>
+            <div key={label} className="min-w-0 rounded-lg border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-4">
+              <p className="text-[0.7rem] font-bold uppercase tracking-[0.12em] text-slate-500">{label}</p>
               <p className="mt-3 break-words text-xl font-bold text-slate-950 sm:text-2xl">{value}</p>
               <p className="mt-2 text-sm text-slate-500">{helper}</p>
             </div>
           ))}
         </div>
         <div>
-          <div className="relative h-3 rounded-full bg-slate-100">
-            <div className="absolute inset-y-0 left-0 rounded-full bg-teal-700" style={{ width: `${basePosition}%` }} />
-            <div className="absolute top-1/2 h-5 w-5 -translate-y-1/2 rounded-full border-2 border-white bg-slate-950 shadow" style={{ left: `calc(${basePosition}% - 10px)` }} />
+          <div className="relative h-4 rounded-full bg-slate-100 shadow-inner">
+            <div className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-teal-800 to-emerald-500" style={{ width: `${basePosition}%` }} />
+            <div className="absolute top-1/2 h-6 w-6 -translate-y-1/2 rounded-full border-2 border-white bg-slate-950 shadow-lg" style={{ left: `calc(${basePosition}% - 12px)` }} />
           </div>
           <div className="mt-2 flex justify-between text-xs font-semibold text-slate-500">
             <span>{money(low, currency)}</span>
@@ -460,11 +470,280 @@ function ValuationRangePanel({
   );
 }
 
+function engineStatusClassName(status: ValuationEngineResult["status"]) {
+  if (status === "ready") return "border-emerald-200 bg-emerald-50 text-emerald-800";
+  if (status === "review") return "border-amber-200 bg-amber-50 text-amber-800";
+  if (status === "missing-data") return "border-red-200 bg-red-50 text-red-800";
+  return "border-slate-200 bg-slate-50 text-slate-600";
+}
+
+function engineAccentClassName(status: ValuationEngineResult["status"]) {
+  if (status === "ready") return "from-emerald-500 to-teal-700";
+  if (status === "review") return "from-amber-400 to-orange-600";
+  if (status === "missing-data") return "from-red-400 to-rose-700";
+  return "from-slate-300 to-slate-500";
+}
+
+function diagnosticToneClassName(severity: ValuationEngineResult["diagnostics"][number]["severity"]) {
+  if (severity === "critical") return "border-red-100 bg-red-50 text-red-900";
+  if (severity === "warning") return "border-amber-100 bg-amber-50 text-amber-950";
+  return "border-slate-200 bg-slate-50 text-slate-700";
+}
+
+function clampPercent(value: number) {
+  return Math.min(Math.max(value, 0), 100);
+}
+
+function rangeMarkerPosition(value: number, low: number, high: number) {
+  const span = Math.max(high - low, 1);
+  return clampPercent(((value - low) / span) * 100);
+}
+
+function EngineCockpit({
+  cockpit,
+  currency,
+  selectedEngineId,
+  onSelectEngine,
+  onCloseSourceDrawer,
+}: {
+  cockpit: BlendedValuationRange;
+  currency: string;
+  selectedEngineId: ValuationEngineId | null;
+  onSelectEngine: (engineId: ValuationEngineId) => void;
+  onCloseSourceDrawer: () => void;
+}) {
+  const selectedEngine = cockpit.engineResults.find((engine) => engine.id === selectedEngineId) ?? null;
+  const rangeSize = Math.max(cockpit.high - cockpit.low, 1);
+  const basePosition = Math.min(Math.max(((cockpit.base - cockpit.low) / rangeSize) * 100, 0), 100);
+  const readyCount = cockpit.engineResults.filter((engine) => engine.status === "ready").length;
+  const reviewCount = cockpit.engineResults.filter((engine) => engine.status === "review").length;
+  const missingCount = cockpit.engineResults.filter((engine) => engine.status === "missing-data").length;
+  const weightedEngines = cockpit.engineResults.filter((engine) => engine.normalizedWeight > 0);
+
+  return (
+    <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
+      <Card className="overflow-hidden border-slate-300 bg-white">
+        <CardHeader>
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="flex h-9 w-9 items-center justify-center rounded-md bg-slate-950 text-white"><Layers3 size={18} /></span>
+                <div>
+                  <CardTitle>Engine cockpit</CardTitle>
+                  <CardDescription>One blended range across active valuation engines. Each method keeps its own weight, confidence and source trail.</CardDescription>
+                </div>
+              </div>
+            </div>
+            <Badge className={cockpit.confidenceBand === "high" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : cockpit.confidenceBand === "medium" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-red-200 bg-red-50 text-red-800"}>
+              Blended confidence {cockpit.confidenceScore}%
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(280px,0.75fr)]">
+            <div className="rounded-lg border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 p-5 text-white shadow-lg shadow-slate-900/10">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-[0.7rem] font-bold uppercase tracking-[0.16em] text-teal-100">Blended equity value</p>
+                  <p className="mt-3 break-words text-3xl font-bold leading-tight sm:text-4xl">{money(cockpit.base, currency)}</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">Weighted midpoint across active methods, with inactive or missing-data engines excluded from the blend.</p>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                  <div className="rounded-md border border-white/10 bg-white/10 p-2">
+                    <p className="font-bold text-emerald-200">{readyCount}</p>
+                    <p className="mt-1 text-slate-300">ready</p>
+                  </div>
+                  <div className="rounded-md border border-white/10 bg-white/10 p-2">
+                    <p className="font-bold text-amber-200">{reviewCount}</p>
+                    <p className="mt-1 text-slate-300">review</p>
+                  </div>
+                  <div className="rounded-md border border-white/10 bg-white/10 p-2">
+                    <p className="font-bold text-red-200">{missingCount}</p>
+                    <p className="mt-1 text-slate-300">missing</p>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-6">
+                <div className="relative h-5 rounded-full bg-white/15 shadow-inner">
+                  <div className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-teal-300 via-emerald-300 to-white" style={{ width: `${basePosition}%` }} />
+                  <div className="absolute top-1/2 h-7 w-7 -translate-y-1/2 rounded-full border-2 border-white bg-slate-950 shadow-lg" style={{ left: `calc(${basePosition}% - 14px)` }} />
+                </div>
+                <div className="mt-3 flex justify-between gap-4 text-xs font-semibold text-slate-300">
+                  <span>{money(cockpit.low, currency)}</span>
+                  <span>{money(cockpit.high, currency)}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <div className="flex items-center gap-2">
+                <Gauge size={18} className="text-teal-700" />
+                <p className="text-sm font-bold text-slate-950">Method weighting</p>
+              </div>
+              <div className="mt-4 space-y-3">
+                {weightedEngines.length ? weightedEngines.map((engine) => (
+                  <div key={engine.id}>
+                    <div className="flex items-center justify-between gap-3 text-xs">
+                      <span className="font-bold text-slate-700">{engine.name}</span>
+                      <span className="font-bold text-slate-950">{(engine.normalizedWeight * 100).toFixed(0)}%</span>
+                    </div>
+                    <div className="mt-1 h-2 rounded-full bg-white shadow-inner">
+                      <div className={`h-2 rounded-full bg-gradient-to-r ${engineAccentClassName(engine.status)}`} style={{ width: `${clampPercent(engine.normalizedWeight * 100)}%` }} />
+                    </div>
+                  </div>
+                )) : <p className="text-sm text-slate-500">No active engine weights available yet.</p>}
+              </div>
+              <p className="mt-4 rounded-md border border-slate-200 bg-white p-3 text-xs leading-5 text-slate-600">
+                Industry profile: <span className="font-bold text-slate-950">{cockpit.industryProfile.label}</span>. Active engines: {cockpit.activeEngines.length}. Excluded engines: {cockpit.excludedEngines.length}.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid gap-3 lg:grid-cols-2">
+            {cockpit.engineResults.map((engine) => (
+              <button
+                key={engine.id}
+                className={`min-w-0 rounded-lg border p-4 text-left transition hover:border-teal-600 ${selectedEngine?.id === engine.id ? "border-teal-600 bg-teal-50/60 shadow-md" : engine.normalizedWeight === 0 ? "border-slate-200 bg-slate-50 opacity-80" : "border-slate-200 bg-white shadow-sm"}`}
+                onClick={() => onSelectEngine(engine.id)}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[0.68rem] font-bold uppercase tracking-[0.16em] text-slate-500">{engine.category}</p>
+                    <p className="mt-1 break-words text-base font-bold text-slate-950">{engine.name}</p>
+                  </div>
+                  <Badge className={engineStatusClassName(engine.status)}>{engine.status}</Badge>
+                </div>
+                <div className="mt-4 grid grid-cols-3 gap-2 text-sm">
+                  <div className="rounded-md bg-slate-50 p-2">
+                    <p className="text-[0.68rem] font-bold uppercase tracking-[0.1em] text-slate-500">Base</p>
+                    <p className="mt-1 font-bold text-slate-950">{Number.isFinite(engine.equityValue.base) ? money(engine.equityValue.base, currency) : "Excluded"}</p>
+                  </div>
+                  <div className="rounded-md bg-slate-50 p-2">
+                    <p className="text-[0.68rem] font-bold uppercase tracking-[0.1em] text-slate-500">Weight</p>
+                    <p className="mt-1 font-bold text-slate-950">{(engine.normalizedWeight * 100).toFixed(0)}%</p>
+                  </div>
+                  <div className="rounded-md bg-slate-50 p-2">
+                    <p className="text-[0.68rem] font-bold uppercase tracking-[0.1em] text-slate-500">Confidence</p>
+                    <p className="mt-1 font-bold text-slate-950">{engine.confidenceScore}%</p>
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <div className="relative h-2 rounded-full bg-slate-100">
+                    {Number.isFinite(engine.equityValue.low) && Number.isFinite(engine.equityValue.high) ? (
+                      <div
+                        className={`absolute top-0 h-2 rounded-full bg-gradient-to-r ${engineAccentClassName(engine.status)}`}
+                        style={{
+                          left: `${rangeMarkerPosition(engine.equityValue.low, cockpit.low, cockpit.high)}%`,
+                          width: `${Math.max(2, rangeMarkerPosition(engine.equityValue.high, cockpit.low, cockpit.high) - rangeMarkerPosition(engine.equityValue.low, cockpit.low, cockpit.high))}%`,
+                        }}
+                      />
+                    ) : null}
+                    {Number.isFinite(engine.equityValue.base) ? (
+                      <span className="absolute top-1/2 h-4 w-1.5 -translate-y-1/2 rounded-full bg-slate-950" style={{ left: `${rangeMarkerPosition(engine.equityValue.base, cockpit.low, cockpit.high)}%` }} />
+                    ) : null}
+                  </div>
+                  <div className="mt-2 flex items-center justify-between text-[0.68rem] font-semibold text-slate-500">
+                    <span>{money(cockpit.low, currency)}</span>
+                    <span>{money(cockpit.high, currency)}</span>
+                  </div>
+                </div>
+                <p className="mt-3 text-xs leading-5 text-slate-600">
+                  {engine.diagnostics[0]?.message ?? `${engine.inputSources.length + engine.calculationSources.length} source item(s) supporting this engine.`}
+                </p>
+              </button>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-slate-300 bg-white xl:sticky xl:top-4 xl:self-start">
+        <CardHeader>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="flex h-8 w-8 items-center justify-center rounded-md bg-teal-50 text-teal-800"><Activity size={17} /></span>
+                <CardTitle>Source drawer</CardTitle>
+              </div>
+              <CardDescription>{selectedEngine ? selectedEngine.name : "Select an engine to inspect sources."}</CardDescription>
+            </div>
+            {selectedEngine ? <button className="rounded-md border border-slate-200 px-3 py-1 text-xs font-bold text-slate-600 hover:border-teal-600 hover:text-teal-800" onClick={onCloseSourceDrawer}>Close</button> : null}
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {selectedEngine ? (
+            <>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-[0.68rem] font-bold uppercase tracking-[0.1em] text-slate-500">Status</p>
+                  <p className="mt-1 font-bold text-slate-950">{selectedEngine.status}</p>
+                </div>
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-[0.68rem] font-bold uppercase tracking-[0.1em] text-slate-500">Confidence</p>
+                  <p className="mt-1 font-bold text-slate-950">{selectedEngine.confidenceScore}%</p>
+                </div>
+              </div>
+              {selectedEngine.diagnostics.length ? (
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Method diagnostics</p>
+                  <div className="mt-2 space-y-2">
+                    {selectedEngine.diagnostics.map((diagnostic, index) => (
+                      <div key={`${diagnostic.message}-${index}`} className={`flex gap-2 rounded-md border p-3 text-xs leading-5 ${diagnosticToneClassName(diagnostic.severity)}`}>
+                        <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+                        <span>{diagnostic.message}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex gap-2 rounded-md border border-emerald-100 bg-emerald-50 p-3 text-xs leading-5 text-emerald-900">
+                  <CheckCircle2 size={15} className="mt-0.5 shrink-0" />
+                  <span>No method-level diagnostics are currently triggered.</span>
+                </div>
+              )}
+              {[
+                ["Input sources", selectedEngine.inputSources],
+                ["Calculation sources", selectedEngine.calculationSources],
+                ["Manual overrides", selectedEngine.manualOverrides],
+              ].map(([title, sources]) => (
+                <div key={title as string}>
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">{title as string}</p>
+                  <div className="mt-2 space-y-2 border-l border-slate-200 pl-3">
+                    {(sources as ValuationEngineResult["inputSources"]).length ? (sources as ValuationEngineResult["inputSources"]).map((source, index) => (
+                      <div key={`${source.label}-${index}`} className="relative rounded-md border border-slate-200 bg-white p-3 text-xs leading-5 text-slate-600 shadow-sm">
+                        <span className="absolute -left-[19px] top-4 h-2.5 w-2.5 rounded-full border border-white bg-teal-700" />
+                        <p className="font-bold text-slate-950">{source.label}</p>
+                        <p>Source: {source.source}</p>
+                        <p>Date: {source.sourceDate}</p>
+                        <p>Confidence: {source.confidence}</p>
+                        {source.note ? <p>Note: {source.note}</p> : null}
+                      </div>
+                    )) : <p className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">None captured yet.</p>}
+                  </div>
+                </div>
+              ))}
+              {selectedEngine.missingSources.length ? (
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Missing sources</p>
+                  <ul className="mt-2 space-y-2 text-xs text-slate-600">
+                    {selectedEngine.missingSources.map((source) => <li key={source} className="rounded-md border border-red-100 bg-red-50 p-2">{source}</li>)}
+                  </ul>
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <p className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600">Click any engine card to see its imported values, manual inputs, calculation sources and missing evidence.</p>
+          )}
+        </CardContent>
+      </Card>
+    </section>
+  );
+}
+
 function OutputRow({ label, value, emphasis = false }: { label: string; value: string; emphasis?: boolean }) {
   return (
-    <div className={`flex items-center justify-between gap-4 border-b border-slate-100 py-2 text-sm ${emphasis ? "font-bold text-slate-950" : "text-slate-700"}`}>
-      <span>{label}</span>
-      <span className="text-right">{value}</span>
+    <div className={`flex items-center justify-between gap-4 border-b border-slate-100 py-2.5 text-sm ${emphasis ? "font-bold text-slate-950" : "text-slate-700"}`}>
+      <span className="min-w-0">{label}</span>
+      <span className="break-words text-right font-semibold">{value}</span>
     </div>
   );
 }
@@ -512,6 +791,7 @@ export default function Home() {
   const [betaSource, setBetaSource] = useState<DamodaranBetaSuggestion | null>(null);
   const [betaStatus, setBetaStatus] = useState("");
   const [betaManuallyEdited, setBetaManuallyEdited] = useState(false);
+  const [selectedEngineId, setSelectedEngineId] = useState<ValuationEngineId | null>("dcf");
 
   const validation = useMemo(() => valuationInputSchema.safeParse(input), [input]);
   const model = useMemo(() => {
@@ -532,7 +812,8 @@ export default function Home() {
     const growthCases = buildCenteredSensitivityCases(input.terminalValue.perpetualGrowthRate, 0.005, 5);
     const sensitivity = buildSensitivityTable(input, waccCases, growthCases);
     const valuationReport = buildValuationReport(input);
-    return { forecastYears, wacc, dcf, bridge, discounts, executiveSummary, terminalBreakdown, evToEquityBridge, privateCompanyAdjustmentBridge, warnings, scenarioAnalysis, diagnostics, waccCases, growthCases, sensitivity, valuationReport };
+    const engineCockpit = runValuationEngines(input);
+    return { forecastYears, wacc, dcf, bridge, discounts, executiveSummary, terminalBreakdown, evToEquityBridge, privateCompanyAdjustmentBridge, warnings, scenarioAnalysis, diagnostics, waccCases, growthCases, sensitivity, valuationReport, engineCockpit };
   }, [input]);
 
   function update(path: ScalarPath, value: string | number) {
@@ -610,6 +891,8 @@ export default function Home() {
     };
 
     const baseInput = buildValuationInputFromSimpleMode(nextSimpleInput);
+    const importedHistoricals = importedYearsToHistoricals(data, baseInput);
+    const balanceSheetImport = applyImportedBalanceSheet(data, baseInput, importedHistoricals);
     const inputWithImports: ValuationInput = {
       ...baseInput,
       profile: {
@@ -626,7 +909,10 @@ export default function Home() {
         website: nextSimpleInput.website,
         industry: nextSimpleInput.industry,
       },
-      historicals: importedYearsToHistoricals(data, baseInput),
+      historicals: balanceSheetImport.historicals,
+      bridge: balanceSheetImport.bridge,
+      workingCapital: balanceSheetImport.workingCapital,
+      importMetadata: balanceSheetImport.importMetadata,
     };
     const seeded = data && data.years.length > 0 ? seedForecastFromHistoricals(inputWithImports) : { input: inputWithImports, seed: null };
     const template = pkdSuggestion ? getIndustryTemplate(pkdSuggestion.industryTemplateName) : null;
@@ -853,6 +1139,8 @@ export default function Home() {
       ...(fetchedKrsProfile ? ["Public KRS profile data fetched."] : []),
       ...(fetchedCompanyData ? ["BizRaport financial data fetched."] : []),
       ...(imported.seed?.notes ?? []),
+      ...(imported.input.importMetadata?.bridge?.warnings ?? []),
+      ...(imported.input.importMetadata?.workingCapital?.warnings ?? []),
     ];
     const preview = { krsProfile: fetchedKrsProfile, companyData: fetchedCompanyData, pkdSuggestion: imported.pkdSuggestion, seed: imported.seed, notes, warnings };
     setKrsProfile(fetchedKrsProfile);
@@ -1076,24 +1364,28 @@ export default function Home() {
         historicals: importedYearsToHistoricals(companyData, baseInput),
         profile: { ...baseInput.profile, website: website ? String(website) : baseInput.profile.website, pkdCode: pkdCode ? String(pkdCode) : "", legalForm: legalForm ? String(legalForm) : baseInput.profile.legalForm },
       };
-      const seeded = seedForecastFromHistoricals(inputWithImportedHistoricals);
+      const balanceSheetImport = applyImportedBalanceSheet(companyData, inputWithImportedHistoricals, inputWithImportedHistoricals.historicals);
+      const seeded = seedForecastFromHistoricals({
+        ...inputWithImportedHistoricals,
+        historicals: balanceSheetImport.historicals,
+        bridge: balanceSheetImport.bridge,
+        workingCapital: balanceSheetImport.workingCapital,
+        importMetadata: balanceSheetImport.importMetadata,
+      });
       setSimpleInput({ ...nextSimpleInput, expectedAnnualRevenueGrowth: seeded.input.forecast.revenueGrowth[0], expectedEbitdaMargin: seeded.input.forecast.ebitdaMargin[0] });
-      setForecastSeedNotes(seeded.seed.notes);
+      setForecastSeedNotes([...seeded.seed.notes, ...balanceSheetImport.warnings]);
       setForecastAutoSeeded(true);
-      setInput(seeded.input);
+      setInput({
+        ...seeded.input,
+        historicals: balanceSheetImport.historicals,
+        bridge: balanceSheetImport.bridge,
+        workingCapital: balanceSheetImport.workingCapital,
+        importMetadata: balanceSheetImport.importMetadata,
+      });
     } else {
       const importedYears = importedYearsForHistoricals(companyData);
-      setInput((current) => ({
-        ...current,
-        profile: {
-          ...current.profile,
-          companyName: String(companyName),
-          registrationNumber: String(registrationNumber),
-          website: website ? String(website) : current.profile.website,
-          pkdCode: pkdCode ? String(pkdCode) : "",
-          legalForm: legalForm ? String(legalForm) : current.profile.legalForm,
-        },
-        historicals: current.historicals.map((historical, index) => {
+      setInput((current) => {
+        const importedHistoricals = current.historicals.map((historical, index) => {
           const imported = importedYears[index];
           return imported ? {
             ...historical,
@@ -1103,8 +1395,24 @@ export default function Home() {
             depreciation: typeof imported.depreciation?.value === "number" ? imported.depreciation.value : historical.depreciation,
             capex: 0,
           } : historical;
-        }),
-      }));
+        });
+        const balanceSheetImport = applyImportedBalanceSheet(companyData, current, importedHistoricals);
+        return {
+          ...current,
+          profile: {
+            ...current.profile,
+            companyName: String(companyName),
+            registrationNumber: String(registrationNumber),
+            website: website ? String(website) : current.profile.website,
+            pkdCode: pkdCode ? String(pkdCode) : "",
+            legalForm: legalForm ? String(legalForm) : current.profile.legalForm,
+          },
+          historicals: balanceSheetImport.historicals,
+          bridge: balanceSheetImport.bridge,
+          workingCapital: balanceSheetImport.workingCapital,
+          importMetadata: balanceSheetImport.importMetadata,
+        };
+      });
     }
     setBizRaportStatus("Imported data applied after user confirmation.");
   }
@@ -1475,26 +1783,46 @@ export default function Home() {
 
   if (!workspaceStarted) {
     return (
-      <main className="min-h-screen px-6 py-8 lg:px-10">
-        <section className="mx-auto max-w-6xl space-y-6">
-          <div className="rounded-xl border border-slate-300 bg-white p-6 shadow-sm lg:p-8">
-            <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)] xl:items-end">
-              <div>
+      <main className="workbench-shell">
+        <section className="workbench-container space-y-6">
+          <div className="hero-panel rounded-xl p-6 lg:p-8">
+            <div className="grid min-w-0 gap-8 xl:grid-cols-[minmax(0,1.12fr)_minmax(0,0.88fr)] xl:items-end">
+              <div className="min-w-0">
                 <Badge className="border-teal-200 bg-teal-50 text-teal-800">KRS-first SME valuation</Badge>
-                <h1 className="mt-5 max-w-3xl text-3xl font-bold tracking-tight text-slate-950 lg:text-5xl">Build the first valuation from a KRS number.</h1>
-                <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">The app pulls the company profile, maps BizRaport financial ranges, applies PKD logic, seeds forecast and WACC assumptions, then lets you review and override the model.</p>
+                <h1 className="mt-5 max-w-3xl break-words text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl lg:text-6xl">Build the first valuation from a KRS number.</h1>
+                <p className="mt-4 max-w-3xl break-words text-base leading-7 text-slate-600 lg:text-lg">The app pulls the company profile, maps BizRaport financial ranges, applies PKD logic, seeds forecast and WACC assumptions, then lets you review and override the model.</p>
+                <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+                  <button className="inline-flex max-w-full items-center justify-center gap-2 rounded-md bg-slate-950 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-slate-900/10 transition hover:bg-teal-800" onClick={fetchCombinedCompanyData}>
+                    <Search size={17} />
+                    Fetch and build model
+                  </button>
+                  <button className="inline-flex max-w-full items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-800 shadow-sm transition hover:border-teal-700 hover:text-teal-800" onClick={() => setWizardStep(3)}>
+                    Manual fallback
+                    <ArrowRight size={17} />
+                  </button>
+                </div>
               </div>
-              <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-                <div className="flex items-center gap-2"><Database size={17} className="text-teal-700" /> KRS + BizRaport data first</div>
-                <div className="flex items-center gap-2"><SlidersHorizontal size={17} className="text-teal-700" /> Assumptions remain editable</div>
-                <div className="flex items-center gap-2"><ShieldCheck size={17} className="text-teal-700" /> Diagnostics before export</div>
+              <div className="grid min-w-0 gap-3 rounded-lg border border-slate-200 bg-white/78 p-4 text-sm text-slate-700 shadow-sm backdrop-blur">
+                {[
+                  { Icon: Database, title: "KRS + BizRaport data first", detail: "Registry profile, financial ranges, and PKD context." },
+                  { Icon: SlidersHorizontal, title: "Assumptions remain editable", detail: "Advisors can override WACC, forecast, bridge, and discounts." },
+                  { Icon: ShieldCheck, title: "Diagnostics before export", detail: "Critical checks stay visible before the PDF/report package." },
+                ].map(({ Icon, title, detail }) => (
+                  <div key={title} className="flex min-w-0 gap-3 rounded-md border border-slate-200 bg-slate-50/80 p-3">
+                    <Icon size={18} className="mt-0.5 shrink-0 text-teal-700" />
+                    <div className="min-w-0">
+                      <p className="font-bold text-slate-950">{title}</p>
+                      <p className="mt-1 text-xs leading-5 text-slate-600">{detail}</p>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
 
           <div className={`grid gap-3 ${wizardImportApplied && companyData?.years.length ? "md:grid-cols-2" : "md:grid-cols-3"}`}>
             {[1, 2, ...(wizardImportApplied && companyData?.years.length ? [] : [3])].map((step) => (
-              <button key={step} className={`rounded-lg border p-4 text-left text-sm font-semibold transition ${wizardStep === step ? "border-slate-950 bg-slate-950 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-teal-500"}`} onClick={() => setWizardStep(step as 1 | 2 | 3)}>
+              <button key={step} className={`rounded-lg border p-4 text-left text-sm font-bold shadow-sm transition ${wizardStep === step ? "border-slate-950 bg-slate-950 text-white shadow-lg shadow-slate-900/10" : "border-slate-200 bg-white text-slate-700 hover:border-teal-500 hover:bg-slate-50"}`} onClick={() => setWizardStep(step as 1 | 2 | 3)}>
                 <span className={`text-xs uppercase tracking-[0.2em] ${wizardStep === step ? "text-slate-300" : "text-slate-500"}`}>{step === 1 ? "Company data" : step === 2 ? "Model path" : "Fallback"}</span>
                 <span className="mt-1 block">{step === 1 ? "Fetch and build" : step === 2 ? "Choose output depth" : "Manual numbers"}</span>
               </button>
@@ -1522,11 +1850,11 @@ export default function Home() {
                         <p className="text-sm font-bold text-slate-950">Build from KRS</p>
                         <p className="mt-1 text-sm text-slate-600">Fetch registry details, BizRaport ranges, PKD suggestion, forecast seed, and WACC source summary in one step.</p>
                       </div>
-                      <button className="rounded-md bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={fetchCombinedCompanyData}>Fetch and build model</button>
+                      <button className="inline-flex items-center justify-center gap-2 rounded-md bg-slate-950 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-teal-800" onClick={fetchCombinedCompanyData}><Search size={17} />Fetch and build model</button>
                     </div>
                     <div className="mt-4 grid gap-2 text-xs font-semibold text-slate-600 sm:grid-cols-5">
                       {["KRS profile", "BizRaport", "PKD", "Forecast", "WACC"].map((label) => (
-                        <span key={label} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">{label}</span>
+                        <span key={label} className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2"><CheckCircle2 size={14} className="text-teal-700" />{label}</span>
                       ))}
                     </div>
                     {combinedImportStatus ? <p className="mt-3 text-sm text-slate-600">{combinedImportStatus}</p> : null}
@@ -1580,46 +1908,45 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen overflow-x-hidden px-4 py-6 sm:px-6 lg:px-8">
-      <section className="mx-auto max-w-6xl space-y-6">
-        <div className="rounded-xl border border-slate-300 bg-white p-6 shadow-sm">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-            <div>
+    <main className="workbench-shell">
+      <section className="workbench-container space-y-6">
+        <div className="hero-panel rounded-xl p-6">
+          <div className="flex min-w-0 flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0">
               <Badge className="border-teal-200 bg-teal-50 text-teal-800">Polish SME valuation workbench</Badge>
-              <h1 className="mt-4 max-w-4xl break-words text-3xl font-bold tracking-tight text-slate-950 lg:text-4xl">{input.profile.companyName}</h1>
+              <h1 className="mt-4 max-w-4xl break-words text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl lg:text-5xl">{input.profile.companyName}</h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
                 KRS-built valuation workspace with live DCF, bridge, private company discounts, diagnostics, and export-ready outputs.
               </p>
             </div>
-            <div className="grid gap-2 text-sm text-slate-700">
+            <div className="grid gap-2 rounded-lg border border-slate-200 bg-white/80 p-4 text-sm text-slate-700 shadow-sm backdrop-blur sm:min-w-[320px]">
               <div className="flex items-center gap-2"><Building2 size={18} className="text-teal-700" /> {input.profile.country}</div>
               <div className="flex items-center gap-2"><Calculator size={18} className="text-teal-700" /> Currency: {input.profile.currency} in 000s</div>
               <div className="flex items-center gap-2"><LineChartIcon size={18} className="text-teal-700" /> Valuation date: {input.profile.valuationDate}</div>
-              <button className="mt-2 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition hover:border-teal-600 hover:text-teal-800" onClick={startNewValuation}>Start new valuation</button>
+              <button className="mt-2 inline-flex items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 transition hover:border-teal-600 hover:text-teal-800" onClick={startNewValuation}><ArrowRight size={16} />Start new valuation</button>
             </div>
           </div>
         </div>
 
         <div className="grid gap-5">
-          <ValuationRangePanel
+          <EngineCockpit
+            cockpit={model.engineCockpit}
             currency={input.profile.currency}
-            low={valuationRangeLow}
-            base={model.valuationReport.valuationConclusion.baseAdjustedEquityValue}
-            high={valuationRangeHigh}
-            confidenceScore={valuationConfidenceScore}
-            readinessHeadline={model.diagnostics.criticalCount > 0 ? "Critical diagnostics are active. Review the warnings before using this valuation range." : "No critical diagnostics are active. Review assumptions, then export the valuation package."}
+            selectedEngineId={selectedEngineId}
+            onSelectEngine={setSelectedEngineId}
+            onCloseSourceDrawer={() => setSelectedEngineId(null)}
           />
           <DataReadinessPanel items={dataReadinessItems} score={sourceReadinessScore} />
         </div>
-        <Card className="border-slate-300 bg-white/90">
+        <Card className="border-slate-300 bg-white/95">
           <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">View mode</p>
               <p className="mt-1 text-sm text-slate-600">Use Owner summary for a simple business answer, or open Extended model when a professional needs to tune the assumptions.</p>
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
-              <button className={`rounded-md border px-5 py-3 text-sm font-semibold transition ${mode === "simple" ? "border-teal-700 bg-teal-700 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-teal-600"}`} onClick={() => switchMode("simple")}>Owner summary</button>
-              <button className={`rounded-md border px-5 py-3 text-sm font-semibold transition ${mode === "professional" ? "border-slate-950 bg-slate-950 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-slate-950"}`} onClick={() => switchMode("professional")}>Extended model</button>
+              <button className={`rounded-md border px-5 py-3 text-sm font-bold transition ${mode === "simple" ? "border-teal-700 bg-teal-700 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-teal-600"}`} onClick={() => switchMode("simple")}>Owner summary</button>
+              <button className={`rounded-md border px-5 py-3 text-sm font-bold transition ${mode === "professional" ? "border-slate-950 bg-slate-950 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-slate-950"}`} onClick={() => switchMode("professional")}>Extended model</button>
             </div>
           </CardContent>
         </Card>
@@ -1870,9 +2197,11 @@ export default function Home() {
                 {input.workingCapital.nwcPctRevenue.map((value, index) => <NumberField key={index} label={`${model.forecastYears[index].year}`} value={value} percent onChange={(next) => updateWorkingCapital(index, next)} />)}
               </div>
               {forecastAutoSeeded ? <p className="mt-3 text-xs text-slate-500">NWC / revenue source: Generated from historical financial statements.</p> : null}
-              <ResponsiveContainer width="100%" height={240} className="mt-6">
-                <AreaChart data={model.forecastYears}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="year" /><YAxis /><Tooltip formatter={(value) => chartMoney(value, input.profile.currency)} /><Area dataKey="freeCashFlow" name="Free Cash Flow" fill="#0f766e" stroke="#0f766e" fillOpacity={0.18} /></AreaChart>
-              </ResponsiveContainer>
+              <div className="chart-frame mt-6">
+                <ResponsiveContainer width="100%" height={240}>
+                  <AreaChart data={model.forecastYears}><CartesianGrid stroke={chartGridColor} strokeDasharray="3 3" /><XAxis dataKey="year" tick={chartAxisStyle} tickLine={false} axisLine={{ stroke: chartGridColor }} /><YAxis tick={chartAxisStyle} tickLine={false} axisLine={{ stroke: chartGridColor }} /><Tooltip contentStyle={chartTooltipStyle} formatter={(value) => chartMoney(value, input.profile.currency)} /><Area dataKey="freeCashFlow" name="Free Cash Flow" fill="#0f766e" stroke="#0f766e" fillOpacity={0.18} /></AreaChart>
+                </ResponsiveContainer>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -2004,9 +2333,11 @@ export default function Home() {
           <Card>
             <CardHeader><CardTitle>10. Valuation Output</CardTitle><CardDescription>Intermediate calculations from projected operating performance to present value.</CardDescription></CardHeader>
             <CardContent className="space-y-5">
-              <ResponsiveContainer width="100%" height={260}>
-                <BarChart data={model.dcf.forecastYears}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="year" /><YAxis /><Tooltip formatter={(value) => chartMoney(value, input.profile.currency)} /><Legend /><Bar dataKey="freeCashFlow" name="FCF" fill="#0f766e" /><Bar dataKey="presentValueFcf" name="PV of FCF" fill="#0f3d5e" /></BarChart>
-              </ResponsiveContainer>
+              <div className="chart-frame">
+                <ResponsiveContainer width="100%" height={260}>
+                  <BarChart data={model.dcf.forecastYears}><CartesianGrid stroke={chartGridColor} strokeDasharray="3 3" /><XAxis dataKey="year" tick={chartAxisStyle} tickLine={false} axisLine={{ stroke: chartGridColor }} /><YAxis tick={chartAxisStyle} tickLine={false} axisLine={{ stroke: chartGridColor }} /><Tooltip contentStyle={chartTooltipStyle} formatter={(value) => chartMoney(value, input.profile.currency)} /><Legend /><Bar dataKey="freeCashFlow" name="FCF" fill="#0f766e" radius={[4, 4, 0, 0]} /><Bar dataKey="presentValueFcf" name="PV of FCF" fill="#0f3d5e" radius={[4, 4, 0, 0]} /></BarChart>
+                </ResponsiveContainer>
+              </div>
               <div className="grid gap-3 md:grid-cols-4">
                 <div className="rounded-xl bg-slate-50 p-4"><p className="text-xs text-slate-500">PV of FCFs</p><p className="font-bold">{money(model.dcf.presentValueOfFcfs, input.profile.currency)}</p></div>
                 <div className="rounded-xl bg-slate-50 p-4"><p className="text-xs text-slate-500">PV of TV</p><p className="font-bold">{money(model.dcf.terminalValue.presentValueTerminalValue, input.profile.currency)}</p></div>
@@ -2259,16 +2590,18 @@ export default function Home() {
                 </tbody>
               </table>
             </div>
-            <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={model.scenarioAnalysis}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip formatter={(value) => chartMoney(value, input.profile.currency)} />
-                <Legend />
-                <Bar dataKey="adjustedEquityValue" name="Adjusted Equity Value" fill="#0f766e" />
-              </BarChart>
-            </ResponsiveContainer>
+            <div className="chart-frame">
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={model.scenarioAnalysis}>
+                  <CartesianGrid stroke={chartGridColor} strokeDasharray="3 3" />
+                  <XAxis dataKey="name" tick={chartAxisStyle} tickLine={false} axisLine={{ stroke: chartGridColor }} />
+                  <YAxis tick={chartAxisStyle} tickLine={false} axisLine={{ stroke: chartGridColor }} />
+                  <Tooltip contentStyle={chartTooltipStyle} formatter={(value) => chartMoney(value, input.profile.currency)} />
+                  <Legend />
+                  <Bar dataKey="adjustedEquityValue" name="Adjusted Equity Value" fill="#0f766e" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </CardContent>
         </Card>
 
@@ -2286,9 +2619,11 @@ export default function Home() {
                 ))}
               </tbody>
             </table>
-            <ResponsiveContainer width="100%" height={240} className="mt-6">
-              <LineChart data={model.dcf.forecastYears}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="year" /><YAxis /><Tooltip formatter={(value) => chartMoney(value, input.profile.currency)} /><Legend /><Line type="monotone" dataKey="revenue" name="Revenue" stroke="#0f3d5e" strokeWidth={2} /><Line type="monotone" dataKey="ebitda" name="EBITDA" stroke="#0f766e" strokeWidth={2} /></LineChart>
-            </ResponsiveContainer>
+            <div className="chart-frame mt-6">
+              <ResponsiveContainer width="100%" height={240}>
+                <LineChart data={model.dcf.forecastYears}><CartesianGrid stroke={chartGridColor} strokeDasharray="3 3" /><XAxis dataKey="year" tick={chartAxisStyle} tickLine={false} axisLine={{ stroke: chartGridColor }} /><YAxis tick={chartAxisStyle} tickLine={false} axisLine={{ stroke: chartGridColor }} /><Tooltip contentStyle={chartTooltipStyle} formatter={(value) => chartMoney(value, input.profile.currency)} /><Legend /><Line type="monotone" dataKey="revenue" name="Revenue" stroke="#0f3d5e" strokeWidth={2.4} dot={{ r: 3 }} /><Line type="monotone" dataKey="ebitda" name="EBITDA" stroke="#0f766e" strokeWidth={2.4} dot={{ r: 3 }} /></LineChart>
+              </ResponsiveContainer>
+            </div>
           </CardContent>
         </Card>
 
@@ -2341,10 +2676,10 @@ export default function Home() {
             <CardDescription>Use PDF for a polished review pack. JSON and CSV remain available for audit, handoff, and offline analysis.</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <button className="rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={openPdfReport}>Create PDF report</button>
-            <button className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={copyReportSummary}>Copy report summary</button>
-            <button className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={downloadJsonReport}>Download JSON</button>
-            <button className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={downloadCsvReport}>Download CSV</button>
+            <button className="inline-flex items-center justify-center gap-2 rounded-md bg-slate-950 px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-teal-800" onClick={openPdfReport}><FileDown size={17} />Create PDF report</button>
+            <button className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={copyReportSummary}>Copy report summary</button>
+            <button className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={downloadJsonReport}>Download JSON</button>
+            <button className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={downloadCsvReport}>Download CSV</button>
           </CardContent>
         </Card>
           </>

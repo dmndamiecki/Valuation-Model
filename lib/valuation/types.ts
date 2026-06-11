@@ -4,6 +4,18 @@ export const ratioSchema = z.number().min(0).max(1);
 export const growthRateSchema = z.number().min(-0.75).max(1);
 export const operatingMarginSchema = z.number().min(-1).max(1);
 export const positiveRateSchema = z.number().min(0).max(1);
+export const dataConfidenceSchema = z.enum(["high", "medium", "low"]);
+
+export const importedValueSourceSchema = z.object({
+  value: z.number().nullable(),
+  source: z.string(),
+  sourceUrl: z.string(),
+  sourceDate: z.string(),
+  fetchedAt: z.string(),
+  confidence: dataConfidenceSchema,
+  isUserOverridden: z.boolean(),
+  note: z.string().optional(),
+});
 
 export const companyProfileSchema = z.object({
   companyName: z.string().min(1),
@@ -87,6 +99,36 @@ export const marketMultiplesAssumptionsSchema = z.object({
   dcfWeight: ratioSchema,
 });
 
+export const valuationImportMetadataSchema = z.object({
+  bridge: z.object({
+    cash: importedValueSourceSchema.optional(),
+    debt: importedValueSourceSchema.optional(),
+    leasing: importedValueSourceSchema.optional(),
+    otherDebtLikeItems: importedValueSourceSchema.optional(),
+    liabilities: importedValueSourceSchema.optional(),
+    cashUnavailable: z.boolean().default(false),
+    debtUnavailable: z.boolean().default(false),
+    liabilitiesUsedAsDebtProxy: z.boolean().default(false),
+    warnings: z.array(z.string()).default([]),
+  }).optional(),
+  workingCapital: z.object({
+    netWorkingCapital: importedValueSourceSchema.optional(),
+    currentAssets: importedValueSourceSchema.optional(),
+    currentLiabilities: importedValueSourceSchema.optional(),
+    receivables: importedValueSourceSchema.optional(),
+    inventory: importedValueSourceSchema.optional(),
+    payables: importedValueSourceSchema.optional(),
+    derivedFromIncompleteFields: z.boolean().default(false),
+    warnings: z.array(z.string()).default([]),
+  }).optional(),
+  assetFloor: z.object({
+    assets: importedValueSourceSchema.optional(),
+    equity: importedValueSourceSchema.optional(),
+    liabilities: importedValueSourceSchema.optional(),
+    warnings: z.array(z.string()).default([]),
+  }).optional(),
+}).optional();
+
 export const valuationInputSchema = z.object({
   profile: companyProfileSchema,
   historicals: z.array(historicalYearSchema).length(3),
@@ -98,6 +140,7 @@ export const valuationInputSchema = z.object({
   bridge: bridgeAssumptionsSchema,
   discounts: discountAssumptionsSchema,
   marketMultiples: marketMultiplesAssumptionsSchema,
+  importMetadata: valuationImportMetadataSchema,
 });
 
 export type CompanyProfile = z.infer<typeof companyProfileSchema>;
@@ -110,4 +153,6 @@ export type TerminalValueAssumptions = z.infer<typeof terminalValueAssumptionsSc
 export type BridgeAssumptions = z.infer<typeof bridgeAssumptionsSchema>;
 export type DiscountAssumptions = z.infer<typeof discountAssumptionsSchema>;
 export type MarketMultiplesAssumptions = z.infer<typeof marketMultiplesAssumptionsSchema>;
+export type ImportedValueSource = z.infer<typeof importedValueSourceSchema>;
+export type ValuationImportMetadata = z.infer<typeof valuationImportMetadataSchema>;
 export type ValuationInput = z.infer<typeof valuationInputSchema>;

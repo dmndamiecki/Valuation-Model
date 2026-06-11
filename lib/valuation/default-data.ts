@@ -78,6 +78,7 @@ export function createBlankValuationInput(valuationDate = todayIsoDate()): Valua
       ebitdaWeight: 0.7,
       dcfWeight: 0.7,
     },
+    importMetadata: undefined,
   };
 }
 
@@ -152,4 +153,5 @@ export const exampleValuationInput: ValuationInput = {
     ebitdaWeight: 0.7,
     dcfWeight: 0.7,
   },
+  importMetadata: undefined,
 };
