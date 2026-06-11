@@ -1,8 +1,10 @@
 import { calculateEquityBridge, calculatePrivateCompanyDiscounts } from "./bridge";
+import { calculateComparableCompanies } from "./comparable-companies";
 import { calculateDcf } from "./dcf";
-import { forecastFinancials, normalizeLatestEbitda } from "./forecast";
+import { forecastFinancials } from "./forecast";
 import { getIndustryModelProfile, type IndustryModelProfile } from "./industry-model-profiles";
 import { calculateMarketValuation } from "./multiples";
+import type { PeerBenchmarkResult } from "./peer-benchmarks";
 import { calculateScenarioAnalysis } from "./scenarios";
 import type { ImportedValueSource, ValuationInput } from "./types";
 import { calculateWacc } from "./wacc";
@@ -41,6 +43,8 @@ export type ValuationEngineDiagnostic = {
   message: string;
 };
 
+export type ValuationEngineDetailValue = number | string | boolean | null;
+
 export type ValuationEngineResult = {
   id: ValuationEngineId;
   name: string;
@@ -57,7 +61,7 @@ export type ValuationEngineResult = {
   calculationSources: EngineSource[];
   manualOverrides: EngineSource[];
   missingSources: string[];
-  details: Record<string, number | string | boolean>;
+  details: Record<string, ValuationEngineDetailValue>;
 };
 
 export type BlendedValuationRange = {
@@ -284,39 +288,71 @@ function buildMarketMultiplesEngine(input: ValuationInput, weight: number, dcfEn
   };
 }
 
-function buildCompsEngine(input: ValuationInput, weight: number): ValuationEngineResult {
+function buildCompsEngine(input: ValuationInput, weight: number, peerBenchmarks: PeerBenchmarkResult | null): ValuationEngineResult {
   const definition = valuationEngineDefinitions[1];
-  const normalizedEbitda = normalizeLatestEbitda(input.historicals, input.normalizationAdjustments);
-  const latestRevenue = input.historicals[input.historicals.length - 1].revenue;
-  const ev = normalizedEbitda > 0
-    ? normalizedEbitda * input.marketMultiples.evEbitdaMultiple
-    : latestRevenue * input.marketMultiples.evRevenueMultiple;
-  const bridge = calculateEquityBridge(ev, input.bridge);
-  const adjusted = calculatePrivateCompanyDiscounts(bridge.equityValue, input.discounts);
-  const diagnostics: ValuationEngineDiagnostic[] = [
-    { severity: "warning", message: "Peer benchmarks are not yet automatically integrated into final valuation output; using selected market multiples as reviewed comps proxy." },
-  ];
-  const missingSources = ["Reviewed public/private peer set", "Outlier trimming evidence", "Normalized peer EV bridge"];
-  const evRange = range(ev * 0.8, ev, ev * 1.2);
-  const equityRange = applyPrivateDiscountRange(input, range(bridge.equityValue * 0.8, bridge.equityValue, bridge.equityValue * 1.2));
+  const result = calculateComparableCompanies(input, peerBenchmarks);
+  const evRange = range(result.enterpriseValueRange.low, result.enterpriseValueRange.base, result.enterpriseValueRange.high);
+  const lowBridge = Number.isFinite(evRange.low) ? calculateEquityBridge(evRange.low, input.bridge) : null;
+  const baseBridge = Number.isFinite(evRange.base) ? calculateEquityBridge(evRange.base, input.bridge) : null;
+  const highBridge = Number.isFinite(evRange.high) ? calculateEquityBridge(evRange.high, input.bridge) : null;
+  const equityRange = lowBridge && baseBridge && highBridge
+    ? applyPrivateDiscountRange(input, range(lowBridge.equityValue, baseBridge.equityValue, highBridge.equityValue))
+    : range(Number.NaN, Number.NaN, Number.NaN);
+  const diagnostics: ValuationEngineDiagnostic[] = result.diagnostics.map((diagnostic) => ({
+    severity: diagnostic.severity,
+    message: diagnostic.message,
+  }));
+  const peerSet = result.peerSet;
+  const peerSource = peerSet
+    ? {
+        label: "BizRaport peer set",
+        source: peerSet.source,
+        sourceDate: peerSet.fetchedAt,
+        confidence: peerSet.quality.score >= 70 ? "medium" as const : "low" as const,
+        note: `${peerSet.peerCount} catalog peers; ${peerSet.sampledFinancialCount} sampled financial profiles; quality ${peerSet.quality.score}%.`,
+      }
+    : null;
+  const multipleSource = {
+    label: result.multiplesSource.label,
+    source: result.multiplesSource.kind,
+    sourceDate: "Current model",
+    confidence: result.multiplesSource.confidence,
+    note: result.multiplesSource.note,
+  };
 
   return {
     id: "comparableCompanies",
     name: definition.name,
     category: definition.category,
-    status: "review",
+    status: result.status,
     weight,
     normalizedWeight: 0,
-    confidenceScore: confidenceFromDiagnostics(48, diagnostics, 3),
+    confidenceScore: result.confidenceScore,
     enterpriseValue: evRange,
     equityValue: equityRange,
-    pointEstimate: adjusted.adjustedEquityValue,
+    pointEstimate: equityRange.base,
     diagnostics,
-    inputSources: [manualSource("Selected market multiples"), manualSource("PKD industry context"), manualSource("BizRaport peer infrastructure", "Available for diagnostics; not yet final-output driver.")],
-    calculationSources: [calculatedSource("Comps proxy", "Uses reviewed selected multiples until peer benchmark approval workflow is complete.")],
-    manualOverrides: [manualSource("Peer multiple selection")],
-    missingSources,
-    details: { normalizedEbitda, latestRevenue },
+    inputSources: compactSources([peerSource, multipleSource, manualSource("PKD industry context")]),
+    calculationSources: [
+      calculatedSource("Comparable Companies engine", "BizRaport supports peer screening and operating diagnostics; manual/public market multiples drive valuation."),
+      calculatedSource("EV-to-equity bridge", "Bridge applied consistently after implied enterprise value."),
+    ],
+    manualOverrides: [
+      manualSource("EV/EBITDA multiple", String(result.multiplesSource.evEbitdaMultiple ?? "missing")),
+      manualSource("EV/Revenue multiple", String(result.multiplesSource.evRevenueMultiple ?? "missing")),
+    ],
+    missingSources: result.missingSources,
+    details: {
+      peerCount: peerSet?.peerCount ?? 0,
+      sampledFinancialCount: peerSet?.sampledFinancialCount ?? 0,
+      peerQualityScore: peerSet?.quality.score ?? 0,
+      outlierRate: peerSet?.quality.outlierRate ?? null,
+      evEbitdaMultiple: result.multiplesSource.evEbitdaMultiple,
+      evRevenueMultiple: result.multiplesSource.evRevenueMultiple,
+      impliedEvFromEbitda: result.impliedEnterpriseValue.ebitda,
+      impliedEvFromRevenue: result.impliedEnterpriseValue.revenue,
+      impliedWeightedEnterpriseValue: result.impliedEnterpriseValue.weighted,
+    },
   };
 }
 
@@ -497,7 +533,7 @@ function weightedValue(results: ValuationEngineResult[], selector: (result: Valu
   return results.reduce((sum, result) => sum + selector(result) * result.normalizedWeight, 0);
 }
 
-export function runValuationEngines(input: ValuationInput): BlendedValuationRange {
+export function runValuationEngines(input: ValuationInput, peerBenchmarks: PeerBenchmarkResult | null = null): BlendedValuationRange {
   const industryProfile = getIndustryModelProfile(input.profile.pkdCode);
   const weights = industryProfile.defaultEngineWeights;
   const forecastYears = forecastFinancials(input.historicals, input.forecast, input.workingCapital, input.normalizationAdjustments);
@@ -506,7 +542,7 @@ export function runValuationEngines(input: ValuationInput): BlendedValuationRang
   const bridge = calculateEquityBridge(dcf.enterpriseValue, input.bridge);
   const results = normalizeWeights([
     buildDcfEngine(input, weights.dcf ?? 0.25),
-    buildCompsEngine(input, weights.comparableCompanies ?? 0.15),
+    buildCompsEngine(input, weights.comparableCompanies ?? 0.15, peerBenchmarks),
     buildMarketMultiplesEngine(input, weights.marketMultiples ?? 0.15, dcf.enterpriseValue, bridge.equityValue),
     buildAssetFloorEngine(input, weights.assetBasedFloor ?? 0.1, industryProfile),
     buildScenarioEngine(input, weights.scenarioAnalysis ?? 0.15),
