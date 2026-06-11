@@ -1516,12 +1516,12 @@ export default function Home() {
                   {importedDataSummary ? <><DataReadinessPanel items={dataReadinessItems} score={sourceReadinessScore} /><ImportedDataSummaryCard summary={importedDataSummary} /></> : null}
                   <div className="grid gap-4 md:grid-cols-2">
                     <button className={`rounded-lg border p-5 text-left transition ${wizardInput.valuationType === "simple" ? "border-teal-700 bg-teal-50" : "border-slate-200 bg-white hover:border-teal-500"}`} onClick={() => updateWizard("valuationType", "simple")}>
-                      <p className="text-lg font-bold text-slate-950">Quick estimate</p>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">A short owner-style valuation using imported or manually entered core numbers.</p>
+                      <p className="text-lg font-bold text-slate-950">Owner summary</p>
+                      <p className="mt-2 text-sm leading-6 text-slate-600">A simple decision view for business owners: value range, confidence, key risks, and what to do next.</p>
                     </button>
                     <button className={`rounded-lg border p-5 text-left transition ${wizardInput.valuationType === "professional" ? "border-slate-950 bg-slate-50" : "border-slate-200 bg-white hover:border-slate-500"}`} onClick={() => updateWizard("valuationType", "professional")}>
-                      <p className="text-lg font-bold text-slate-950">Full workbench</p>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">Detailed workflow for historicals, normalization, forecast, WACC, DCF, diagnostics, and exports.</p>
+                      <p className="text-lg font-bold text-slate-950">Extended model</p>
+                      <p className="mt-2 text-sm leading-6 text-slate-600">Professional mode with historicals, normalization, forecast, WACC, DCF, market approach, scenarios, diagnostics, and exports.</p>
                     </button>
                   </div>
                   {wizardImportApplied && companyData?.years.length ? <Badge className="border-teal-200 bg-teal-50 text-teal-800">Model prefilled from KRS + BizRaport - Step 3 will be skipped</Badge> : <p className="text-sm text-slate-500">No imported financial years are available yet, so the wizard will ask for a manual financial starting point.</p>}
@@ -1589,12 +1589,12 @@ export default function Home() {
         <Card className="border-slate-300 bg-white/90">
           <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Workflow</p>
-              <p className="mt-1 text-sm text-slate-600">Use the quick estimate for a fast view, or open the full workbench for banker-style review.</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">View mode</p>
+              <p className="mt-1 text-sm text-slate-600">Use Owner summary for a simple business answer, or open Extended model when a professional needs to tune the assumptions.</p>
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
-              <button className={`rounded-md border px-5 py-3 text-sm font-semibold transition ${mode === "simple" ? "border-teal-700 bg-teal-700 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-teal-600"}`} onClick={() => switchMode("simple")}>Quick estimate</button>
-              <button className={`rounded-md border px-5 py-3 text-sm font-semibold transition ${mode === "professional" ? "border-slate-950 bg-slate-950 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-slate-950"}`} onClick={() => switchMode("professional")}>Full workbench</button>
+              <button className={`rounded-md border px-5 py-3 text-sm font-semibold transition ${mode === "simple" ? "border-teal-700 bg-teal-700 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-teal-600"}`} onClick={() => switchMode("simple")}>Owner summary</button>
+              <button className={`rounded-md border px-5 py-3 text-sm font-semibold transition ${mode === "professional" ? "border-slate-950 bg-slate-950 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-slate-950"}`} onClick={() => switchMode("professional")}>Extended model</button>
             </div>
           </CardContent>
         </Card>
@@ -1603,8 +1603,8 @@ export default function Home() {
           <section className="grid gap-6">
             <Card>
               <CardHeader>
-                <CardTitle>Quick estimate inputs</CardTitle>
-                <CardDescription>Enter the core information needed for a three-minute indicative SME valuation. Advanced assumptions are auto-filled and still run through the same DCF valuation engine.</CardDescription>
+                <CardTitle>Owner summary inputs</CardTitle>
+                <CardDescription>Enter only the business facts needed for a plain-language valuation view. The professional assumptions stay available in Extended model.</CardDescription>
               </CardHeader>
               <CardContent className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-1.5"><Label>Company name</Label><Input value={simpleInput.companyName} onChange={(event) => updateSimple("companyName", event.target.value)} /></div>
@@ -1628,18 +1628,24 @@ export default function Home() {
 
             <Card className="border-teal-200 bg-teal-50/40">
               <CardHeader>
-                <CardTitle>Simple Mode valuation result</CardTitle>
-                <CardDescription>This is a simplified indicative valuation based on default assumptions. Use Professional Mode for detailed due diligence.</CardDescription>
+                <CardTitle>Owner valuation summary</CardTitle>
+                <CardDescription>A simple business-facing answer using the same valuation engine. Use Extended model when an advisor or analyst needs to tune the assumptions.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-5">
+                <div className="rounded-lg border border-slate-200 bg-white p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Decision snapshot</p>
+                  <p className="mt-3 text-sm leading-6 text-slate-700">
+                    Base adjusted equity value is <span className="font-bold text-slate-950">{money(model.discounts.adjustedEquityValue, input.profile.currency)}</span>, with a current confidence score of <span className="font-bold text-slate-950">{valuationConfidenceScore}%</span>. {model.diagnostics.criticalCount > 0 ? "Critical diagnostics should be reviewed before using this valuation for a decision." : "No critical diagnostics are active, but assumptions should still be reviewed before sharing the result."}
+                  </p>
+                </div>
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <MetricCard label="Enterprise Value" value={money(model.dcf.enterpriseValue, input.profile.currency)} helper="DCF enterprise value" />
-                  <MetricCard label="Equity Value" value={money(model.bridge.equityValue, input.profile.currency)} helper="After cash and debt bridge" />
-                  <MetricCard label="Adjusted Equity Value" value={money(model.discounts.adjustedEquityValue, input.profile.currency)} helper="After private company discounts" />
-                  <MetricCard label="EV / EBITDA" value={multiple(model.executiveSummary.evToNormalizedEbitda)} helper="Based on latest EBITDA" />
+                  <MetricCard label="Business value" value={money(model.discounts.adjustedEquityValue, input.profile.currency)} helper="Estimated owner-facing equity value after private-company adjustments" />
+                  <MetricCard label="Value before discounts" value={money(model.bridge.equityValue, input.profile.currency)} helper="Equity value before marketability and company-specific discounts" />
+                  <MetricCard label="Company operating value" value={money(model.dcf.enterpriseValue, input.profile.currency)} helper="Enterprise value before cash, debt, and equity bridge items" />
+                  <MetricCard label="Valuation multiple" value={multiple(model.executiveSummary.evToNormalizedEbitda)} helper="EV / EBITDA based on the current model" />
                 </div>
                 <div className="rounded-lg border border-slate-200 bg-white p-4">
-                  <h3 className="text-sm font-bold uppercase tracking-wide text-slate-600">Bear / Base / Bull range</h3>
+                  <h3 className="text-sm font-bold uppercase tracking-wide text-slate-600">Likely value range</h3>
                   <div className="mt-3 grid gap-3 sm:grid-cols-3">
                     {model.scenarioAnalysis.map((scenario) => (
                       <div key={scenario.name} className="rounded-xl bg-slate-50 p-3">
@@ -1650,13 +1656,13 @@ export default function Home() {
                   </div>
                 </div>
                 <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-                  <h3 className="flex items-center gap-2 text-sm font-bold text-amber-950"><AlertCircle size={16} /> Key warnings</h3>
+                  <h3 className="flex items-center gap-2 text-sm font-bold text-amber-950"><AlertCircle size={16} /> What could change the answer</h3>
                   {model.warnings.length > 0 ? (
                     <ul className="mt-3 space-y-2 text-sm text-amber-950">
                       {model.warnings.slice(0, 4).map((warning) => <li key={warning.code}>{warning.message}</li>)}
                     </ul>
                   ) : (
-                    <p className="mt-3 text-sm text-amber-950">No valuation warnings triggered under the simplified assumptions.</p>
+                    <p className="mt-3 text-sm text-amber-950">No major valuation warnings are active in the owner summary. A professional can still review the detailed assumptions in Extended model.</p>
                   )}
                 </div>
               </CardContent>
