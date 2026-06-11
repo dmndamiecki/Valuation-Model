@@ -42,7 +42,7 @@ import {
   calculateValuationWarnings,
 } from "@/lib/valuation/output";
 import { calculateScenarioAnalysis } from "@/lib/valuation/scenarios";
-import { applyIndustryTemplate, getIndustryTemplate, industryTemplates, type IndustryTemplate, type TemplateValue } from "@/lib/valuation/industry-templates";
+import { applyIndustryTemplate, getIndustryTemplate, industryTemplates, type IndustryTemplate } from "@/lib/valuation/industry-templates";
 import { suggestIndustryTemplateFromPkd, type PkdIndustrySuggestion } from "@/lib/valuation/pkd-industry-mapping";
 import { buildValuationInputFromSimpleMode, simpleInputFromValuationInput, type SimpleModeInput } from "@/lib/valuation/simple-mode";
 import { buildCenteredSensitivityCases, buildSensitivityTable } from "@/lib/valuation/sensitivity";
@@ -215,21 +215,6 @@ function asNumber(value: string) {
   return Number.isFinite(Number(value)) ? Number(value) : 0;
 }
 
-type DisplayTemplateValue = Omit<TemplateValue, "value"> & { value: number | string };
-
-function assumptionValue(value: DisplayTemplateValue, format: "percent" | "multiple" | "number" | "text") {
-  if (format === "text") {
-    return String(value.value);
-  }
-  if (format === "percent") {
-    return `${(Number(value.value) * 100).toFixed(1)}%`;
-  }
-  if (format === "multiple") {
-    return `${Number(value.value).toFixed(1)}x`;
-  }
-  return Number(value.value).toFixed(2);
-}
-
 function SourceMeta({ dataPoint }: { dataPoint: DataPoint<number | string | null> }) {
   return (
     <span className="block break-words text-xs text-slate-500">
@@ -252,36 +237,53 @@ function DataPointRow({ label, dataPoint, formatter = String }: { label: string;
 
 function TemplateAssumptionTable({ template }: { template: IndustryTemplate }) {
   const rows = [
-    ["Industry classification", { ...template.assumptions.beta, value: template.name }, "text"],
-    ["Beta", template.assumptions.beta, "number"],
-    ["Equity risk premium", template.assumptions.equityRiskPremium, "percent"],
-    ["DLOM", template.assumptions.dlom, "percent"],
-    ...(template.assumptions.defaultTaxRate ? [["Default tax rate", template.assumptions.defaultTaxRate, "percent"]] as const : []),
-  ] as const;
+    {
+      label: "Industry classification",
+      value: template.name,
+      source: "PKD / industry template",
+      sourceDate: "Current model",
+      confidence: "medium" as const,
+      note: "Used for classification, private-company discounts, and industry context. Beta and ERP are sourced in Market Data Sources.",
+      format: "text" as const,
+    },
+    {
+      label: "DLOM",
+      value: template.assumptions.dlom.value,
+      source: template.assumptions.dlom.source,
+      sourceDate: template.assumptions.dlom.sourceDate,
+      confidence: template.assumptions.dlom.confidence,
+      note: template.assumptions.dlom.note,
+      format: "percent" as const,
+    },
+    ...(template.assumptions.defaultTaxRate ? [{
+      label: "Default tax rate",
+      value: template.assumptions.defaultTaxRate.value,
+      source: template.assumptions.defaultTaxRate.source,
+      sourceDate: template.assumptions.defaultTaxRate.sourceDate,
+      confidence: template.assumptions.defaultTaxRate.confidence,
+      note: template.assumptions.defaultTaxRate.note,
+      format: "percent" as const,
+    }] : []),
+  ];
 
   return (
     <div className="max-w-full overflow-x-auto rounded-lg border border-slate-200 bg-white">
-      <table className="w-full min-w-[760px] text-sm">
+      <table className="w-full min-w-[680px] text-sm">
         <thead>
           <tr className="border-b bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
             <th className="p-3">Assumption</th><th className="p-3 text-right">Value</th><th className="p-3">Source</th><th className="p-3">Source date</th><th className="p-3">Confidence</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map(([label, assumption, format]) => {
-            const isTemplateSeed = ["Industry classification", "Beta", "Equity risk premium"].includes(label);
-            const sourceLabel = isTemplateSeed ? "Template seed" : assumption.source;
-            const sourceNote = isTemplateSeed ? "Manual template seed; not Damodaran live data." : assumption.note;
-            return (
-              <tr key={label} className="border-b border-slate-100 align-top">
-                <td className="p-3 font-semibold text-slate-800">{label}</td>
-                <td className="p-3 text-right font-semibold text-slate-950">{assumptionValue(assumption, format)}</td>
-                <td className="p-3 text-slate-700">{sourceLabel}{sourceNote ? <span className="block text-xs text-slate-500">{sourceNote}</span> : null}</td>
-                <td className="p-3 text-slate-600">{assumption.sourceDate}</td>
-                <td className="p-3"><Badge className={assumption.confidence === "low" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-blue-200 bg-blue-50 text-blue-800"}>{assumption.confidence}</Badge></td>
-              </tr>
-            );
-          })}
+          {rows.map((row) => (
+            <tr key={row.label} className="border-b border-slate-100 align-top">
+              <td className="p-3 font-semibold text-slate-800">{row.label}</td>
+              <td className="p-3 text-right font-semibold text-slate-950">{row.format === "percent" ? pct(row.value as number) : String(row.value)}</td>
+              <td className="p-3 text-slate-700">{row.source}{row.note ? <span className="block text-xs text-slate-500">{row.note}</span> : null}</td>
+              <td className="p-3 text-slate-600">{row.sourceDate}</td>
+              <td className="p-3"><Badge className={row.confidence === "low" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-blue-200 bg-blue-50 text-blue-800"}>{row.confidence}</Badge></td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
@@ -1672,6 +1674,7 @@ export default function Home() {
       return;
     }
     setInput((current) => applyIndustryTemplate(current, template));
+    refreshCoreMarketInputs(input.profile.country, template.name);
   }
 
   function applySuggestedIndustryTemplate(suggestion: PkdIndustrySuggestion | null) {
@@ -1813,25 +1816,25 @@ export default function Home() {
     {
       input: "Risk-free rate",
       currentValue: pct(input.wacc.riskFreeRate),
-      source: riskFreeRateSource?.value !== null && riskFreeRateSource?.value !== undefined ? riskFreeRateSource.source : "Manual input",
+      source: riskFreeRateManuallyEdited && riskFreeRateSource?.value !== null && riskFreeRateSource?.value !== undefined ? `Manual override; source available from ${riskFreeRateSource.source}` : riskFreeRateSource?.value !== null && riskFreeRateSource?.value !== undefined ? riskFreeRateSource.source : "Manual input",
       date: riskFreeRateSource?.value !== null && riskFreeRateSource?.value !== undefined ? riskFreeRateSource.observationDate ?? riskFreeRateSource.fetchedAt : "Manual",
-      status: riskFreeRateSource?.value !== null && riskFreeRateSource?.value !== undefined ? riskFreeRateSource.status : "manual",
+      status: riskFreeRateManuallyEdited ? "manual_override" : riskFreeRateSource?.value !== null && riskFreeRateSource?.value !== undefined ? riskFreeRateSource.status : "manual",
       confidence: riskFreeRateSource?.value !== null && riskFreeRateSource?.value !== undefined ? riskFreeRateSource.confidence : "low",
     },
     {
       input: "Equity risk premium",
       currentValue: pct(input.wacc.equityRiskPremium),
-      source: erpSource?.value !== null && erpSource?.value !== undefined ? `${erpSource.source} seed` : "Manual input",
+      source: erpManuallyEdited && erpSource?.value !== null && erpSource?.value !== undefined ? `Manual override; source available from ${erpSource.source}` : erpSource?.value !== null && erpSource?.value !== undefined ? `${erpSource.source} seed` : "Manual input",
       date: erpSource?.value !== null && erpSource?.value !== undefined ? erpSource.sourceDate : "Manual",
-      status: erpSource?.value !== null && erpSource?.value !== undefined ? erpSource.refreshStatus : "manual",
+      status: erpManuallyEdited ? "manual_override" : erpSource?.value !== null && erpSource?.value !== undefined ? erpSource.refreshStatus : "manual",
       confidence: erpSource?.value !== null && erpSource?.value !== undefined ? erpSource.confidence : "low",
     },
     {
       input: "Beta",
       currentValue: input.wacc.beta.toFixed(2),
-      source: betaSource?.value !== null && betaSource?.value !== undefined ? `${betaSource.source} seed` : "Manual input",
+      source: betaManuallyEdited && betaSource?.value !== null && betaSource?.value !== undefined ? `Manual override; source available from ${betaSource.source}` : betaSource?.value !== null && betaSource?.value !== undefined ? `${betaSource.source} seed` : "Manual input",
       date: betaSource?.value !== null && betaSource?.value !== undefined ? betaSource.sourceDate : "Manual",
-      status: betaSource?.value !== null && betaSource?.value !== undefined ? betaSource.refreshStatus : "manual",
+      status: betaManuallyEdited ? "manual_override" : betaSource?.value !== null && betaSource?.value !== undefined ? betaSource.refreshStatus : "manual",
       confidence: betaSource?.value !== null && betaSource?.value !== undefined ? betaSource.confidence : "low",
     },
   ];
@@ -2176,15 +2179,15 @@ export default function Home() {
             </CardContent>
           </Card>
           <Card>
-            <CardHeader><CardTitle>Industry Template</CardTitle><CardDescription>Optional classification, WACC, ERP, and DLOM seed. Forecast assumptions are generated only from historical financial statements.</CardDescription></CardHeader>
+            <CardHeader><CardTitle>Industry Classification</CardTitle><CardDescription>PKD-driven classification and private-company assumptions. Beta and ERP are controlled by Market Data Sources and WACC.</CardDescription></CardHeader>
             <CardContent className="space-y-4">
               <PkdSuggestionPanel suggestion={activePkdSuggestion} />
-              <div className="space-y-1.5"><Label>Industry template selector</Label><select className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 shadow-sm focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-100" value={professionalIndustryTemplate?.name ?? ""} onChange={(event) => event.target.value ? applyTemplateToInput(event.target.value) : update(["profile", "industry"], "")}><option value="">Select template</option>{industryTemplates.map((template) => <option key={template.name} value={template.name}>{template.name}</option>)}</select><p className="text-xs text-slate-500">Selecting a template immediately updates classification, WACC seed assumptions, and DLOM. You can still edit the values manually.</p></div>
-              {professionalIndustryTemplate ? <TemplateAssumptionTable template={professionalIndustryTemplate} /> : <p className="text-sm text-slate-500">Select an industry template to review classification, beta, ERP, DLOM, and source notes.</p>}
+              <div className="space-y-1.5"><Label>Industry template selector</Label><select className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 shadow-sm focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-100" value={professionalIndustryTemplate?.name ?? ""} onChange={(event) => event.target.value ? applyTemplateToInput(event.target.value) : update(["profile", "industry"], "")}><option value="">Select template</option>{industryTemplates.map((template) => <option key={template.name} value={template.name}>{template.name}</option>)}</select><p className="text-xs text-slate-500">Selecting a template updates classification, DLOM, and optional tax defaults. Beta and ERP stay sourced from Market Data Sources unless you edit WACC manually.</p></div>
+              {professionalIndustryTemplate ? <TemplateAssumptionTable template={professionalIndustryTemplate} /> : <p className="text-sm text-slate-500">Select an industry template to review classification, DLOM, tax defaults, and source notes.</p>}
             </CardContent>
           </Card>
           <Card>
-            <CardHeader><CardTitle>Market Data Sources</CardTitle><CardDescription>WACC market inputs update automatically after company import or valuation start. Manual edits remain editable in WACC.</CardDescription></CardHeader>
+            <CardHeader><CardTitle>Market Data Sources</CardTitle><CardDescription>Single source of truth for WACC market inputs: risk-free rate, ERP, and beta. Manual edits remain editable in WACC.</CardDescription></CardHeader>
             <CardContent className="space-y-5">
               <div className="max-w-full overflow-x-auto rounded-lg border border-slate-200 bg-white">
                 <table className="w-full min-w-[760px] text-sm">
