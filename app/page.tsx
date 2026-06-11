@@ -50,6 +50,8 @@ import { valuationInputSchema, type ValuationInput } from "@/lib/valuation/types
 import { calculateWacc } from "@/lib/valuation/wacc";
 import { applyImportedBalanceSheet } from "@/lib/valuation/balance-sheet-import";
 import { runValuationEngines, type BlendedValuationRange, type ValuationEngineId, type ValuationEngineResult } from "@/lib/valuation/engine-runner";
+import { buildBizRaportPeerFilters } from "@/lib/valuation/comparable-companies";
+import type { PeerBenchmarkResult } from "@/lib/valuation/peer-benchmarks";
 
 type PercentArrayKey = "revenueGrowth" | "ebitdaMargin" | "depreciationPctRevenue" | "capexPctRevenue";
 type ValuationMode = "simple" | "professional";
@@ -499,18 +501,32 @@ function rangeMarkerPosition(value: number, low: number, high: number) {
   return clampPercent(((value - low) / span) * 100);
 }
 
+function engineDetailValue(value: ValuationEngineResult["details"][string], currency: string) {
+  if (value === null || value === undefined) return "n/a";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "string") return value;
+  if (!Number.isFinite(value)) return "n/a";
+  if (Math.abs(value) >= 1000) return money(value, currency);
+  if (Math.abs(value) <= 1 && value !== 0) return pct(value);
+  return value.toFixed(2);
+}
+
 function EngineCockpit({
   cockpit,
   currency,
   selectedEngineId,
   onSelectEngine,
   onCloseSourceDrawer,
+  onFetchComparablePeers,
+  peerBenchmarkStatus,
 }: {
   cockpit: BlendedValuationRange;
   currency: string;
   selectedEngineId: ValuationEngineId | null;
   onSelectEngine: (engineId: ValuationEngineId) => void;
   onCloseSourceDrawer: () => void;
+  onFetchComparablePeers: () => void;
+  peerBenchmarkStatus: string;
 }) {
   const selectedEngine = cockpit.engineResults.find((engine) => engine.id === selectedEngineId) ?? null;
   const rangeSize = Math.max(cockpit.high - cockpit.low, 1);
@@ -650,6 +666,22 @@ function EngineCockpit({
                 <p className="mt-3 text-xs leading-5 text-slate-600">
                   {engine.diagnostics[0]?.message ?? `${engine.inputSources.length + engine.calculationSources.length} source item(s) supporting this engine.`}
                 </p>
+                {engine.id === "comparableCompanies" ? (
+                  <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                    <div className="rounded-md border border-slate-200 bg-white p-2">
+                      <p className="font-bold text-slate-950">{engine.details.peerCount ?? 0}</p>
+                      <p className="mt-1 text-slate-500">peers</p>
+                    </div>
+                    <div className="rounded-md border border-slate-200 bg-white p-2">
+                      <p className="font-bold text-slate-950">{engine.details.sampledFinancialCount ?? 0}</p>
+                      <p className="mt-1 text-slate-500">sampled</p>
+                    </div>
+                    <div className="rounded-md border border-slate-200 bg-white p-2">
+                      <p className="font-bold text-slate-950">{engine.details.peerQualityScore ?? 0}%</p>
+                      <p className="mt-1 text-slate-500">quality</p>
+                    </div>
+                  </div>
+                ) : null}
               </button>
             ))}
           </div>
@@ -700,6 +732,31 @@ function EngineCockpit({
                   <span>No method-level diagnostics are currently triggered.</span>
                 </div>
               )}
+              {selectedEngine.id === "comparableCompanies" ? (
+                <div className="rounded-md border border-teal-100 bg-teal-50 p-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-bold text-slate-950">BizRaport peer screen</p>
+                      <p className="mt-1 text-xs leading-5 text-slate-600">Fetch a lean Polish SME peer set from PKD, revenue and EBITDA filters. Multiples remain manual/public-market sourced.</p>
+                    </div>
+                    <button className="rounded-md bg-teal-700 px-3 py-2 text-xs font-bold text-white transition hover:bg-teal-800" onClick={onFetchComparablePeers}>Fetch peers</button>
+                  </div>
+                  {peerBenchmarkStatus ? <p className="mt-2 text-xs leading-5 text-slate-600">{peerBenchmarkStatus}</p> : null}
+                </div>
+              ) : null}
+              {Object.keys(selectedEngine.details).length ? (
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Engine details</p>
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                    {Object.entries(selectedEngine.details).map(([key, value]) => (
+                      <div key={key} className="rounded-md border border-slate-200 bg-slate-50 p-2">
+                        <p className="font-semibold text-slate-500">{key}</p>
+                        <p className="mt-1 break-words font-bold text-slate-950">{engineDetailValue(value, currency)}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               {[
                 ["Input sources", selectedEngine.inputSources],
                 ["Calculation sources", selectedEngine.calculationSources],
@@ -792,6 +849,8 @@ export default function Home() {
   const [betaStatus, setBetaStatus] = useState("");
   const [betaManuallyEdited, setBetaManuallyEdited] = useState(false);
   const [selectedEngineId, setSelectedEngineId] = useState<ValuationEngineId | null>("dcf");
+  const [peerBenchmarks, setPeerBenchmarks] = useState<PeerBenchmarkResult | null>(null);
+  const [peerBenchmarkStatus, setPeerBenchmarkStatus] = useState("");
 
   const validation = useMemo(() => valuationInputSchema.safeParse(input), [input]);
   const model = useMemo(() => {
@@ -812,9 +871,9 @@ export default function Home() {
     const growthCases = buildCenteredSensitivityCases(input.terminalValue.perpetualGrowthRate, 0.005, 5);
     const sensitivity = buildSensitivityTable(input, waccCases, growthCases);
     const valuationReport = buildValuationReport(input);
-    const engineCockpit = runValuationEngines(input);
+    const engineCockpit = runValuationEngines(input, peerBenchmarks);
     return { forecastYears, wacc, dcf, bridge, discounts, executiveSummary, terminalBreakdown, evToEquityBridge, privateCompanyAdjustmentBridge, warnings, scenarioAnalysis, diagnostics, waccCases, growthCases, sensitivity, valuationReport, engineCockpit };
-  }, [input]);
+  }, [input, peerBenchmarks]);
 
   function update(path: ScalarPath, value: string | number) {
     setInput((current) => ({
@@ -952,6 +1011,39 @@ export default function Home() {
       throw new Error(payload.error ?? fallbackMessage);
     }
     return payload;
+  }
+
+  async function fetchComparableCompanyPeers() {
+    setPeerBenchmarkStatus("Fetching BizRaport peer screen for Comparable Companies...");
+    try {
+      const filters = buildBizRaportPeerFilters(input);
+      const params = new URLSearchParams();
+      const setParam = (key: string, value: string | number | boolean | undefined) => {
+        if (value === undefined || value === null || value === "") return;
+        params.set(key, typeof value === "boolean" ? value ? "tak" : "" : String(value));
+      };
+
+      setParam("pkd_sekcja", filters.pkdSekcja);
+      setParam("pkd_dzial", filters.pkdDzial);
+      setParam("pkd_podklasa", filters.pkdPodklasa);
+      setParam("przychody_od", filters.przychodyOd);
+      setParam("przychody_do", filters.przychodyDo);
+      setParam("ebitda_od", filters.ebitdaOd);
+      setParam("ebitda_do", filters.ebitdaDo);
+      setParam("nie_wykreslona", filters.nieWykreslona);
+      setParam("limit", filters.limit ?? 250);
+      setParam("sample_limit", 25);
+
+      const payload = await fetchJsonOrError(`/api/company-data/bizraport/catalog?${params.toString()}`, "BizRaport peer screen failed.");
+      const benchmark = payload.data as PeerBenchmarkResult;
+      setPeerBenchmarks(benchmark);
+      setSelectedEngineId("comparableCompanies");
+      setPeerBenchmarkStatus(`Peer screen loaded: ${benchmark.catalogCount} catalog peers, ${benchmark.sampledFinancialCount} sampled financial profiles.`);
+    } catch (error) {
+      setPeerBenchmarks(null);
+      setSelectedEngineId("comparableCompanies");
+      setPeerBenchmarkStatus(error instanceof Error ? error.message : "BizRaport peer screen failed.");
+    }
   }
 
   function applyRiskFreeRateResult(result: FredRiskFreeRateResult, force = false) {
@@ -1156,6 +1248,8 @@ export default function Home() {
     }
 
     const imported = buildImportedValuationInput(preview.krsProfile, preview.companyData);
+    setPeerBenchmarks(null);
+    setPeerBenchmarkStatus("Comparable Companies peer screen needs to be refreshed for this company.");
     setInput(imported.input);
     setSimpleInput(imported.simpleInput);
     setWizardInput((current) => ({
@@ -1339,6 +1433,8 @@ export default function Home() {
       setBizRaportStatus("Fetch BizRaport data before applying.");
       return;
     }
+    setPeerBenchmarks(null);
+    setPeerBenchmarkStatus("Comparable Companies peer screen needs to be refreshed after importing company data.");
     const latestRevenue = latestRevenueYear(companyData);
     const latestEbitda = latestEbitdaYear(companyData);
     const companyName = companyData.companyName?.value || input.profile.companyName;
@@ -1550,6 +1646,8 @@ export default function Home() {
     setCombinedImportStatus("");
     setWizardImportApplied(false);
     setImportedDataSummary(null);
+    setPeerBenchmarks(null);
+    setPeerBenchmarkStatus("");
     setRiskFreeRateSource(null);
     setRiskFreeRateStatus("");
     setRiskFreeRateManuallyEdited(false);
@@ -1935,6 +2033,8 @@ export default function Home() {
             selectedEngineId={selectedEngineId}
             onSelectEngine={setSelectedEngineId}
             onCloseSourceDrawer={() => setSelectedEngineId(null)}
+            onFetchComparablePeers={fetchComparableCompanyPeers}
+            peerBenchmarkStatus={peerBenchmarkStatus}
           />
           <DataReadinessPanel items={dataReadinessItems} score={sourceReadinessScore} />
         </div>
