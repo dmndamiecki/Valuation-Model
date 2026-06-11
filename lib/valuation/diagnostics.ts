@@ -114,6 +114,8 @@ export function calculateValuationDiagnostics(input: ValuationInput): Diagnostic
   const normalizedEbitda = normalizeLatestEbitda(input.historicals, input.normalizationAdjustments);
   const totalDebtLikeItems = bridge.debt + bridge.leasing + bridge.otherDebtLikeItems;
   const debtToEbitda = safeDivide(totalDebtLikeItems, normalizedEbitda);
+  const importedLiabilities = input.importMetadata?.bridge?.liabilities?.value ?? input.importMetadata?.assetFloor?.liabilities?.value ?? null;
+  const evEqualsEquity = Math.abs(bridge.equityValue - dcf.enterpriseValue) < 1;
   const normalizationAdjustmentRatio = safeDivide(
     Math.abs(sumNormalizationAdjustments(input.normalizationAdjustments)),
     Math.abs(latestHistorical.ebitda),
@@ -159,6 +161,56 @@ export function calculateValuationDiagnostics(input: ValuationInput): Diagnostic
       area: "Sources",
       message: "Historical revenue and EBITDA are blank across all periods.",
       suggestedAction: "Import or enter historical financial statements before using the model.",
+    });
+  }
+
+  if (input.importMetadata?.bridge?.cashUnavailable) {
+    diagnostics.push({
+      code: "BIZRAPORT_CASH_UNAVAILABLE",
+      severity: "warning",
+      area: "Bridge",
+      message: "Cash is unavailable from BizRaport; bridge cash may be a zero fallback or manual input.",
+      suggestedAction: "Review the latest balance sheet and manually enter cash or cash-like assets before relying on equity value.",
+    });
+  }
+
+  if (input.importMetadata?.bridge?.debtUnavailable) {
+    diagnostics.push({
+      code: "BIZRAPORT_DEBT_UNAVAILABLE",
+      severity: input.importMetadata.bridge.liabilitiesUsedAsDebtProxy ? "warning" : "critical",
+      area: "Bridge",
+      message: "Financial debt is unavailable from BizRaport.",
+      suggestedAction: "Manually review loans, leases, factoring, related-party debt, and other debt-like items.",
+    });
+  }
+
+  if (input.importMetadata?.bridge?.liabilitiesUsedAsDebtProxy) {
+    diagnostics.push({
+      code: "TOTAL_LIABILITIES_USED_AS_DEBT_PROXY",
+      severity: "warning",
+      area: "Bridge",
+      message: "Total liabilities used as conservative debt-like proxy; review actual financial debt manually.",
+      suggestedAction: "Replace the proxy with true financial debt, leasing, working-capital liabilities, and other debt-like items once the liability split is available.",
+    });
+  }
+
+  if (importedLiabilities !== null && importedLiabilities > 0 && totalDebtLikeItems === 0 && evEqualsEquity) {
+    diagnostics.push({
+      code: "EV_EQUALS_EQUITY_WITH_IMPORTED_LIABILITIES",
+      severity: "critical",
+      area: "Bridge",
+      message: "Enterprise value equals equity value even though imported liabilities are greater than zero.",
+      suggestedAction: "Populate the EV-to-equity bridge from imported liabilities or manually confirm that liabilities are not debt-like.",
+    });
+  }
+
+  if (input.importMetadata?.workingCapital?.derivedFromIncompleteFields) {
+    diagnostics.push({
+      code: "NWC_DERIVED_FROM_INCOMPLETE_FIELDS",
+      severity: "warning",
+      area: "Forecast",
+      message: "Net working capital was derived from incomplete BizRaport balance sheet fields.",
+      suggestedAction: "Review receivables, inventory, payables/current liabilities, and NWC percent of revenue before relying on FCFF.",
     });
   }
 

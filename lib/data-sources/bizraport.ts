@@ -1,5 +1,13 @@
 import { cleanBizRaportKrs, digitsOnly, isKrs, isNip } from "./identifiers";
-import type { CompanyFinancialData, DataPoint, ImportedFinancialYear } from "./types";
+import type {
+  CompanyFinancialData,
+  CompanyLegalEventData,
+  CompanyNarrativeData,
+  CompanyOwnershipData,
+  CompanyRelationshipData,
+  DataPoint,
+  ImportedFinancialYear,
+} from "./types";
 
 export { isKrs, isNip } from "./identifiers";
 
@@ -31,6 +39,19 @@ type BizRaportFinancialRow = {
   kwota?: number | string | null;
 };
 
+type BizRaportNarrativeRow = {
+  opis?: string | null;
+  punkt_kluczowy_1?: string | null;
+  punkt_kluczowy_2?: string | null;
+  punkt_kluczowy_3?: string | null;
+  punkt_kluczowy_4?: string | null;
+  punkt_kluczowy_5?: string | null;
+};
+
+type BizRaportRelationshipRow = Record<string, unknown>;
+type BizRaportOwnershipRow = Record<string, unknown>;
+type BizRaportLegalEventRow = Record<string, unknown>;
+
 type BizRaportCompanyPayload = {
   [key: string]: unknown;
   krs?: string;
@@ -40,10 +61,13 @@ type BizRaportCompanyPayload = {
   opis_pkd?: string;
   pkd?: string;
   kodPkd?: string;
-  informacje_o_firmie?: BizRaportInfoField[];
-  dane_finansowe?: BizRaportFinancialRow[];
-  powiazania?: unknown[];
-  udzialy?: unknown[];
+  informacje_o_firmie?: BizRaportInfoField[] | string | null;
+  dane_finansowe?: BizRaportFinancialRow[] | string | null;
+  opisy_firmy?: BizRaportNarrativeRow[] | string | null;
+  powiazania?: BizRaportRelationshipRow[] | string | null;
+  udzialy?: BizRaportOwnershipRow[] | string | null;
+  monitor_sadowy?: BizRaportLegalEventRow[] | string | null;
+  krz?: BizRaportLegalEventRow[] | string | null;
 };
 
 export type BizRaportCompanyResponse = BizRaportCompanyPayload & {
@@ -95,6 +119,30 @@ function responseKeys(body: unknown) {
   return body && typeof body === "object" && !Array.isArray(body) ? Object.keys(body) : [];
 }
 
+function parseJsonArray<T>(value: T[] | string | null | undefined): T[] {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (typeof value !== "string" || !value.trim()) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed as T[] : [];
+  } catch {
+    return [];
+  }
+}
+
+function getFinancialRows(payload: BizRaportCompanyPayload) {
+  return parseJsonArray<BizRaportFinancialRow>(payload.dane_finansowe);
+}
+
+function infoRows(payload: BizRaportCompanyPayload) {
+  return parseJsonArray<BizRaportInfoField>(payload.informacje_o_firmie);
+}
+
 function unwrapBizRaportResponse(response: BizRaportCompanyResponse): BizRaportCompanyPayload {
   if (Array.isArray(response.data)) {
     return response.data[0] ?? response;
@@ -113,9 +161,9 @@ function summarizeBizRaportResponse(response: BizRaportCompanyResponse) {
     responseKeys: responseKeys(response),
     hasKrs: Boolean(payload.krs),
     hasKodPkd: Boolean(payload.kod_pkd ?? payload.pkd ?? payload.kodPkd),
-    hasInformacjeOFirmie: Array.isArray(payload.informacje_o_firmie),
-    hasDaneFinansowe: Array.isArray(payload.dane_finansowe),
-    daneFinansoweCount: payload.dane_finansowe?.length ?? 0,
+    hasInformacjeOFirmie: infoRows(payload).length > 0,
+    hasDaneFinansowe: getFinancialRows(payload).length > 0,
+    daneFinansoweCount: getFinancialRows(payload).length,
   };
 }
 
@@ -181,6 +229,22 @@ function normalizeBizRaportKey(value: string) {
     .toLowerCase()
     .trim()
     .normalize("NFD")
+    .replace(/[\u0142\u0141]/g, "l")
+    .replace(/[\u0105\u0104]/g, "a")
+    .replace(/[\u0107\u0106]/g, "c")
+    .replace(/[\u0119\u0118]/g, "e")
+    .replace(/[\u0144\u0143]/g, "n")
+    .replace(/[\u00f3\u00d3]/g, "o")
+    .replace(/[\u015b\u015a]/g, "s")
+    .replace(/[\u017a\u0179\u017c\u017b]/g, "z")
+    .replace(/[łŁ]/g, "l")
+    .replace(/[ąĄ]/g, "a")
+    .replace(/[ćĆ]/g, "c")
+    .replace(/[ęĘ]/g, "e")
+    .replace(/[ńŃ]/g, "n")
+    .replace(/[óÓ]/g, "o")
+    .replace(/[śŚ]/g, "s")
+    .replace(/[źŹżŻ]/g, "z")
     .replace(/[łŁ]/g, "l")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[\s\-/]+/g, "_");
@@ -248,7 +312,9 @@ function assignRangeMetric(
   if (mappedKey === "aktywa_trwale") year.fixedAssets = point;
   if (mappedKey === "aktywa_obrotowe") year.currentAssets = point;
   if (mappedKey === "kapital_wlasny") year.equity = point;
-  if (mappedKey === "zobowiazania_i_rezerwy") year.liabilities = point;
+  if (mappedKey === "zobowiazania_i_rezerwy" || mappedKey === "zobowiazania_i_rezerwy_na_zobowiazania") year.liabilities = point;
+  if (mappedKey === "wskaznik_zadluzenia") year.debtRatio = point;
+  if (mappedKey === "srednioroczny_wzrost_przychodow_3_lata") year.revenueCagr3Y = point;
   if (mappedKey === "zatrudnienie") year.employees = point;
 }
 
@@ -284,7 +350,7 @@ function dataPoint<T>(value: T, sourceDate: string, fetchedAt: string, confidenc
 
 function companyInfo(response: BizRaportCompanyPayload, keys: string[]) {
   const normalizedKeys = keys.map(normalizeBizRaportKey);
-  return response.informacje_o_firmie?.find((field) => normalizedKeys.includes(normalizeBizRaportKey(String(field.nazwa_pola ?? ""))))?.wartosc ?? null;
+  return infoRows(response).find((field) => normalizedKeys.includes(normalizeBizRaportKey(String(field.nazwa_pola ?? ""))))?.wartosc ?? null;
 }
 
 function assignFinancialMetric(year: ImportedFinancialYear, key: string, amount: number | null, sourceDate: string, fetchedAt: string) {
@@ -295,10 +361,27 @@ function assignFinancialMetric(year: ImportedFinancialYear, key: string, amount:
 
   if (normalized === "przychody") {
     year.revenue = point;
+  } else if (normalized === "przychody_operacyjne") {
+    year.operatingRevenue = point;
+    if (!year.revenue) year.revenue = point;
+  } else if (normalized === "przychody_ze_sprzedazy") {
+    year.salesRevenue = point;
+    if (!year.revenue) year.revenue = point;
+  } else if (normalized === "koszty_operacyjne") {
+    year.operatingCosts = point;
+  } else if (normalized === "koszty_sprzedanych_produktow") {
+    year.costOfGoodsSold = point;
+  } else if (normalized === "zysk_brutto_ze_sprzedazy") {
+    year.grossProfit = point;
+  } else if (normalized === "zysk_ze_sprzedazy") {
+    year.salesProfit = point;
+  } else if (normalized === "zysk_brutto") {
+    year.profitBeforeTax = point;
   } else if (normalized === "ebitda") {
     year.ebitda = point;
-  } else if (normalized === "ebit" || normalized === "zysk_operacyjny") {
+  } else if (normalized === "ebit" || normalized === "zysk_operacyjny" || normalized === "zysk_z_dzialalnosci_operacyjnej") {
     year.ebit = point;
+    year.operatingProfit = point;
   } else if (normalized === "zysk_netto") {
     year.netIncome = point;
   } else if (normalized === "amortyzacja") {
@@ -311,10 +394,24 @@ function assignFinancialMetric(year: ImportedFinancialYear, key: string, amount:
     year.assets = point;
   } else if (normalized === "kapital_wlasny") {
     year.equity = point;
-  } else if (normalized === "zobowiazania_i_rezerwy") {
+  } else if (normalized === "zobowiazania_i_rezerwy" || normalized === "zobowiazania_i_rezerwy_na_zobowiazania") {
     year.liabilities = point;
   } else if (normalized === "wskaznik_zadluzenia") {
     year.debtRatio = point;
+  } else if (normalized === "srednioroczny_wzrost_przychodow_3_lata") {
+    year.revenueCagr3Y = point;
+  } else if (normalized === "gotowka" || normalized === "srodki_pieniezne" || normalized === "srodki_pieniezne_i_inne_aktywa_pieniezne") {
+    year.cash = point;
+  } else if (normalized === "naleznosci" || normalized === "naleznosci_krotkoterminowe") {
+    year.receivables = point;
+  } else if (normalized === "zapasy") {
+    year.inventory = point;
+  } else if (normalized === "zobowiazania_krotkoterminowe" || normalized === "zobowiazania_biezace") {
+    year.payables = point;
+  } else if (normalized === "kredyty_i_pozyczki" || normalized === "zadluzenie_finansowe" || normalized === "dlug_finansowy") {
+    year.debt = point;
+  } else if (normalized === "leasing" || normalized === "zobowiazania_z_tytulu_leasingu") {
+    year.leasing = point;
   } else if (normalized === "marza_netto") {
     year.netMargin = point;
   } else if (normalized === "marza_operacyjna") {
@@ -323,7 +420,7 @@ function assignFinancialMetric(year: ImportedFinancialYear, key: string, amount:
     year.roe = point;
   } else if (normalized === "roa") {
     year.roa = point;
-  } else if (normalized === "zatrudnienie") {
+  } else if (normalized === "zatrudnienie" || normalized === "zatrudnienie_estymowane") {
     year.employees = point;
   } else if (normalized === "wynagrodzenia") {
     year.salaries = point;
@@ -335,6 +432,10 @@ function assignFinancialMetric(year: ImportedFinancialYear, key: string, amount:
     year.bizRaportAvgCompanyValue = point;
   } else if (normalized === "wartosc_firmy_maksymalna") {
     year.bizRaportMaxCompanyValue = point;
+  } else if (normalized === "ryzyko_upadlosci") {
+    year.bankruptcyRisk = point;
+  } else if (normalized === "ryzyko_zamkniecia") {
+    year.closureRisk = point;
   }
 }
 
@@ -355,11 +456,18 @@ function applyFlatRangePayload(
 ) {
   const hasFlatRanges = [
     "przychody",
+    "przychody_operacyjne",
     "zysk_netto",
+    "zysk_z_dzialalnosci_operacyjnej",
     "ebitda",
     "ebit",
+    "koszty_operacyjne",
+    "podatek_dochodowy",
+    "wynagrodzenia",
+    "amortyzacja",
     "suma_bilansowa",
     "kapital_wlasny",
+    "zobowiazania_i_rezerwy",
     "zobowiazania_i_rezerwy_na_zobowiazania",
   ].some((baseKey) => payloadValue(payload, `${baseKey}_od`) !== null || payloadValue(payload, `${baseKey}_do`) !== null);
 
@@ -374,9 +482,10 @@ function applyFlatRangePayload(
   assignRangeMetric(year, payload, "przychody", "przychody", rangeSourceDate, fetchedAt, notes, "medium");
   assignRangeMetric(year, payload, "przychody_operacyjne", "przychody_operacyjne", rangeSourceDate, fetchedAt, notes, "medium");
   assignRangeMetric(year, payload, "zysk_netto", "zysk_netto", rangeSourceDate, fetchedAt, notes, "medium");
-  assignRangeMetric(year, payload, "zysk_z_dzialalnosci_operacyjnej", "zysk_operacyjny", rangeSourceDate, fetchedAt, notes, "medium");
+  assignRangeMetric(year, payload, "zysk_z_dzialalnosci_operacyjnej", "zysk_z_dzialalnosci_operacyjnej", rangeSourceDate, fetchedAt, notes, "medium");
   assignRangeMetric(year, payload, "ebit", "ebit", rangeSourceDate, fetchedAt, notes, "medium");
   assignRangeMetric(year, payload, "ebitda", "ebitda", rangeSourceDate, fetchedAt, notes, "medium");
+  assignRangeMetric(year, payload, "koszty_operacyjne", "koszty_operacyjne", rangeSourceDate, fetchedAt, notes, "medium");
   assignRangeMetric(year, payload, "podatek_dochodowy", "podatek_dochodowy", rangeSourceDate, fetchedAt, notes, "medium");
   assignRangeMetric(year, payload, "wynagrodzenia", "wynagrodzenia", rangeSourceDate, fetchedAt, notes, "medium");
   assignRangeMetric(year, payload, "amortyzacja", "amortyzacja", rangeSourceDate, fetchedAt, notes, "medium");
@@ -384,7 +493,9 @@ function applyFlatRangePayload(
   assignRangeMetric(year, payload, "aktywa_trwale", "aktywa_trwale", rangeSourceDate, fetchedAt, notes, "medium");
   assignRangeMetric(year, payload, "aktywa_obrotowe", "aktywa_obrotowe", rangeSourceDate, fetchedAt, notes, "medium");
   assignRangeMetric(year, payload, "kapital_wlasny", "kapital_wlasny", rangeSourceDate, fetchedAt, notes, "medium");
+  assignRangeMetric(year, payload, "zobowiazania_i_rezerwy", "zobowiazania_i_rezerwy", rangeSourceDate, fetchedAt, notes, "low");
   assignRangeMetric(year, payload, "zobowiazania_i_rezerwy_na_zobowiazania", "zobowiazania_i_rezerwy", rangeSourceDate, fetchedAt, notes, "low");
+  assignRangeMetric(year, payload, "srednioroczny_wzrost_przychodow_3_lata", "srednioroczny_wzrost_przychodow_3_lata", rangeSourceDate, fetchedAt, notes, "medium");
   assignRangeMetric(year, payload, "zatrudnienie", "zatrudnienie", rangeSourceDate, fetchedAt, notes, "medium");
 
   assignRangePercent(year, payload, "roa", "roa", rangeSourceDate, fetchedAt, notes);
@@ -406,10 +517,77 @@ function textPayloadValue(payload: BizRaportCompanyPayload, keys: string[]): str
   }
   return null;
 }
+
+function stringValue(record: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) {
+      return value;
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return String(value);
+    }
+  }
+  return null;
+}
+
+function mapNarratives(payload: BizRaportCompanyPayload): CompanyNarrativeData[] {
+  return parseJsonArray<BizRaportNarrativeRow>(payload.opisy_firmy).map((row) => ({
+    description: row.opis ?? null,
+    keyPoints: [
+      row.punkt_kluczowy_1,
+      row.punkt_kluczowy_2,
+      row.punkt_kluczowy_3,
+      row.punkt_kluczowy_4,
+      row.punkt_kluczowy_5,
+    ].filter((point): point is string => typeof point === "string" && point.trim().length > 0),
+  }));
+}
+
+function mapRelationships(payload: BizRaportCompanyPayload): CompanyRelationshipData[] {
+  return parseJsonArray<BizRaportRelationshipRow>(payload.powiazania).map((row) => ({
+    type: stringValue(row, ["typ_powiazania", "typ", "funkcja"]),
+    name: stringValue(row, ["nazwa", "imie_nazwisko", "firma"]),
+    role: stringValue(row, ["rola", "stanowisko", "funkcja"]),
+    raw: row,
+  }));
+}
+
+function mapOwnership(payload: BizRaportCompanyPayload): CompanyOwnershipData[] {
+  return parseJsonArray<BizRaportOwnershipRow>(payload.udzialy).map((row) => ({
+    entityType: stringValue(row, ["typ_podmiotu"]),
+    name: stringValue(row, ["nazwa"]),
+    ownershipPercent: stringValue(row, ["procent_udzialow"]),
+    entityId: stringValue(row, ["id_podmiotu"]),
+    raw: row,
+  }));
+}
+
+function mapLegalEvents(payload: BizRaportCompanyPayload): CompanyLegalEventData[] {
+  const msig = parseJsonArray<BizRaportLegalEventRow>(payload.monitor_sadowy).map((row) => ({
+    date: stringValue(row, ["data_publikacji"]),
+    title: stringValue(row, ["tresc_naglowka", "numer_ogloszenia"]),
+    category: stringValue(row, ["rozdzial", "sygnatura_sprawy"]),
+    importance: stringValue(row, ["poziom_istotnosci"]),
+    source: "MSiG" as const,
+    raw: row,
+  }));
+  const krz = parseJsonArray<BizRaportLegalEventRow>(payload.krz).map((row) => ({
+    date: stringValue(row, ["data_krz"]),
+    title: stringValue(row, ["tytul_obwieszczenia", "numer_obwieszczenia"]),
+    category: stringValue(row, ["grupa_kategorii_tytul", "kategoria_tytul"]),
+    importance: stringValue(row, ["przypisanie_do_krs"]),
+    source: "KRZ" as const,
+    raw: row,
+  }));
+
+  return [...msig, ...krz];
+}
+
 export function buildBizRaportDebugSnapshot(response: BizRaportCompanyResponse, mappedResult: CompanyFinancialData): BizRaportDebugSnapshot {
   const payload = unwrapBizRaportResponse(response);
-  const financialRows = payload.dane_finansowe ?? [];
-  const companyInfoRows = payload.informacje_o_firmie ?? [];
+  const financialRows = getFinancialRows(payload);
+  const companyInfoRows = infoRows(payload);
   const detectedIndicatorNames = Array.from(new Set(financialRows.map((row) => String(row.nazwa_wskaznika ?? "")).filter(Boolean)));
 
   return {
@@ -426,7 +604,8 @@ export function mapBizRaportResponseToCompanyFinancialData(response: BizRaportCo
   const warnings: string[] = [];
   const notes: string[] = [];
   const yearsByYear = new Map<number, ImportedFinancialYear>();
-  const financialRows = payload.dane_finansowe;
+  const rawFinancialRows = payload.dane_finansowe;
+  const financialRows = getFinancialRows(payload);
   const detectedIndicatorNames = Array.from(new Set(financialRows?.map((row) => String(row.nazwa_wskaznika ?? "")).filter(Boolean) ?? []));
   const latestYear = financialRows?.reduce<number | null>((latest, row) => {
     const year = Number(row.rok);
@@ -434,11 +613,11 @@ export function mapBizRaportResponseToCompanyFinancialData(response: BizRaportCo
   }, null);
   const sourceDate = latestYear ? String(latestYear) : "No financial year available";
 
-  if (!Array.isArray(financialRows)) {
+  if (!rawFinancialRows) {
     warnings.push("No dane_finansowe array returned by BizRaport.");
   }
 
-  financialRows?.forEach((row) => {
+  financialRows.forEach((row) => {
     const yearNumber = Number(row.rok);
     if (!Number.isFinite(yearNumber) || !row.nazwa_wskaznika) {
       warnings.push("Skipped a financial row with missing year or metric name.");
@@ -457,7 +636,7 @@ export function mapBizRaportResponseToCompanyFinancialData(response: BizRaportCo
   const hasMappedRevenue = years.some((year) => Boolean(year.revenue));
   const hasMappedEbitda = years.some((year) => Boolean(year.ebitda));
 
-  if (Array.isArray(financialRows) && financialRows.length > 0 && (!hasMappedRevenue || !hasMappedEbitda)) {
+  if (financialRows.length > 0 && (!hasMappedRevenue || !hasMappedEbitda)) {
     warnings.push("Financial data returned, but key valuation fields were not recognized.");
     notes.push(`Detected BizRaport indicators: ${detectedIndicatorNames.join(", ") || "none"}.`);
   }
@@ -474,6 +653,8 @@ export function mapBizRaportResponseToCompanyFinancialData(response: BizRaportCo
   const pkdCode = payload.kod_pkd ?? payload.pkd ?? payload.kodPkd ?? textPayloadValue(payload, ["pkd_podklasa", "pkd_dzial", "pkd_sekcja"]);
   const pkdDescription = payload.opis_pkd ?? textPayloadValue(payload, ["opis"]);
   const latestImportedYear = years.find((year) => typeof year.cash?.value === "number");
+  const latestDebtYear = years.find((year) => typeof year.debt?.value === "number");
+  const latestLeasingYear = years.find((year) => typeof year.leasing?.value === "number");
   const latestLiabilitiesYear = years.find((year) => typeof year.liabilities?.value === "number");
 
   return {
@@ -492,10 +673,17 @@ export function mapBizRaportResponseToCompanyFinancialData(response: BizRaportCo
     sourceDate,
     fetchedAt,
     years,
+    narratives: mapNarratives(payload),
+    relationships: mapRelationships(payload),
+    ownership: mapOwnership(payload),
+    legalEvents: mapLegalEvents(payload),
     cash: latestImportedYear?.cash,
-    debt: latestLiabilitiesYear?.liabilities
+    debt: latestDebtYear?.debt,
+    leasing: latestLeasingYear?.leasing,
+    otherDebtLikeItems: latestDebtYear?.debt || latestLeasingYear?.leasing ? undefined : latestLiabilitiesYear?.liabilities
       ? dataPoint(latestLiabilitiesYear.liabilities.value, latestLiabilitiesYear.liabilities.sourceDate, fetchedAt, "low")
       : undefined,
+    liabilities: latestLiabilitiesYear?.liabilities,
     warnings: Array.from(new Set(warnings)),
     notes: Array.from(new Set(notes)),
   };

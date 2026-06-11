@@ -15,6 +15,14 @@ export type DataPoint<T = number | string> = {
 export type ImportedFinancialYear = {
   year: number;
   revenue?: DataPoint<number | null>;
+  operatingRevenue?: DataPoint<number | null>;
+  salesRevenue?: DataPoint<number | null>;
+  operatingCosts?: DataPoint<number | null>;
+  costOfGoodsSold?: DataPoint<number | null>;
+  grossProfit?: DataPoint<number | null>;
+  salesProfit?: DataPoint<number | null>;
+  operatingProfit?: DataPoint<number | null>;
+  profitBeforeTax?: DataPoint<number | null>;
   ebitda?: DataPoint<number | null>;
   ebit?: DataPoint<number | null>;
   netIncome?: DataPoint<number | null>;
@@ -31,17 +39,53 @@ export type ImportedFinancialYear = {
   equity?: DataPoint<number | null>;
   liabilities?: DataPoint<number | null>;
   debtRatio?: DataPoint<number | null>;
+  revenueCagr3Y?: DataPoint<number | null>;
   employees?: DataPoint<number | null>;
   salaries?: DataPoint<number | null>;
   bizRaportMinCompanyValue?: DataPoint<number | null>;
   bizRaportAvgCompanyValue?: DataPoint<number | null>;
   bizRaportMaxCompanyValue?: DataPoint<number | null>;
   cash?: DataPoint<number | null>;
+  debt?: DataPoint<number | null>;
+  leasing?: DataPoint<number | null>;
+  otherDebtLikeItems?: DataPoint<number | null>;
   receivables?: DataPoint<number | null>;
   inventory?: DataPoint<number | null>;
+  payables?: DataPoint<number | null>;
   depreciation?: DataPoint<number | null>;
   capex?: DataPoint<number | null>;
   netWorkingCapital?: DataPoint<number | null>;
+  bankruptcyRisk?: DataPoint<number | null>;
+  closureRisk?: DataPoint<number | null>;
+};
+
+export type CompanyNarrativeData = {
+  description?: string | null;
+  keyPoints: string[];
+};
+
+export type CompanyRelationshipData = {
+  type?: string | null;
+  name?: string | null;
+  role?: string | null;
+  raw: unknown;
+};
+
+export type CompanyOwnershipData = {
+  entityType?: string | null;
+  name?: string | null;
+  ownershipPercent?: string | null;
+  entityId?: string | null;
+  raw: unknown;
+};
+
+export type CompanyLegalEventData = {
+  date?: string | null;
+  title?: string | null;
+  category?: string | null;
+  importance?: string | null;
+  source: "MSiG" | "KRZ";
+  raw: unknown;
 };
 
 
@@ -80,8 +124,15 @@ export type CompanyFinancialData = {
   fetchedAt: string;
   sourceDate: string;
   years: ImportedFinancialYear[];
+  narratives?: CompanyNarrativeData[];
+  relationships?: CompanyRelationshipData[];
+  ownership?: CompanyOwnershipData[];
+  legalEvents?: CompanyLegalEventData[];
   cash?: DataPoint<number | null>;
   debt?: DataPoint<number | null>;
+  leasing?: DataPoint<number | null>;
+  liabilities?: DataPoint<number | null>;
+  otherDebtLikeItems?: DataPoint<number | null>;
   warnings: string[];
   notes: string[];
 };

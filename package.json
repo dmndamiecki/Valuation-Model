@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@openai/agents": "^0.11.6",
     "class-variance-authority": "latest",
     "clsx": "latest",
     "lucide-react": "latest",

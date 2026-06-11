@@ -1,0 +1,11 @@
+[project]
+name = "valuation-ui-review-agent"
+version = "0.1.0"
+description = "Agents SDK reviewer for valuation app UI and usability."
+requires-python = ">=3.10"
+dependencies = [
+  "openai-agents>=0.17.4",
+]
+
+[tool.pyright]
+pythonVersion = "3.12"

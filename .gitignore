@@ -5,6 +5,12 @@ node_modules
 out
 dist
 .env*.local
+ui-review-agent/.venv/
 .vercel
 *.log
+*.tsbuildinfo
+__pycache__/
 .DS_Store
+tmp/
+tsconfig.tsbuildinfo
+__pycache__/
