@@ -124,7 +124,7 @@ function DataReadinessPanel({ items, score }: { items: DataReadinessItem[]; scor
           <Badge className={score >= 80 ? "border-emerald-200 bg-emerald-50 text-emerald-800" : score >= 50 ? "border-amber-200 bg-amber-50 text-amber-800" : "border-slate-200 bg-slate-50 text-slate-700"}>Readiness {score}%</Badge>
         </div>
       </CardHeader>
-      <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         {items.map((item) => (
           <div key={item.label} className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -220,7 +220,7 @@ function assumptionValue(value: DisplayTemplateValue, format: "percent" | "multi
 
 function SourceMeta({ dataPoint }: { dataPoint: DataPoint<number | string | null> }) {
   return (
-    <span className="block text-xs text-slate-500">
+    <span className="block break-words text-xs text-slate-500">
       Source: {dataPoint.source} · URL: {dataPoint.sourceUrl} · Date: {dataPoint.sourceDate} · Confidence: {dataPoint.confidence} · {dataPoint.isUserOverridden ? "user overridden" : "not overridden"}
     </span>
   );
@@ -294,7 +294,7 @@ function PkdSuggestionPanel({ suggestion }: { suggestion: PkdIndustrySuggestion 
   );
 }
 
-function CombinedCompanyImportPreview({ preview, currency }: { preview: CombinedCompanyImportPreviewData; currency: string }) {
+function CombinedCompanyImportPreview({ preview, currency, onConfirm }: { preview: CombinedCompanyImportPreviewData; currency: string; onConfirm: () => void }) {
   const profile = preview.krsProfile;
   const data = preview.companyData;
   const latest = data?.years[0];
@@ -305,10 +305,10 @@ function CombinedCompanyImportPreview({ preview, currency }: { preview: Combined
     <div className="space-y-4 rounded-lg border border-teal-200 bg-teal-50/60 p-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm font-bold text-slate-950">Imported company data</p>
-          <p className="text-xs text-slate-600">Registry profile, BizRaport financials, PKD template, forecast seed, and market sources are applied automatically. You can still edit every assumption below.</p>
+          <p className="text-sm font-bold text-slate-950">Review fetched company data</p>
+          <p className="text-xs text-slate-600">Confirm that the registry profile, BizRaport financials, PKD template, and generated assumptions match the company before building the model.</p>
         </div>
-        <Badge className="border-teal-200 bg-white text-teal-800">Ready for valuation</Badge>
+        <Badge className="border-amber-200 bg-white text-amber-800">Needs confirmation</Badge>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-3">
@@ -363,6 +363,10 @@ function CombinedCompanyImportPreview({ preview, currency }: { preview: Combined
 
       {preview.notes.length > 0 ? <p className="text-xs text-slate-600">{preview.notes.join(" ")}</p> : null}
       {preview.warnings.length > 0 ? <p className="text-xs text-amber-700">{preview.warnings.join(" ")}</p> : null}
+      <div className="flex flex-col gap-3 border-t border-teal-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-slate-700">If these details look right, apply them to the valuation model and choose the owner or extended view.</p>
+        <button className="rounded-xl bg-teal-700 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={onConfirm}>Confirm and apply data</button>
+      </div>
     </div>
   );
 }
@@ -854,7 +858,7 @@ export default function Home() {
     setKrsProfile(fetchedKrsProfile);
     setCompanyData(fetchedCompanyData);
     setCombinedImportPreview(preview);
-    importCombinedCompanyData(preview);
+    setCombinedImportStatus("Review the fetched company data, then confirm it before building the valuation model.");
   }
 
   function importCombinedCompanyData(preview: CombinedCompanyImportPreviewData | null = combinedImportPreview) {
@@ -877,7 +881,7 @@ export default function Home() {
     setImportedDataSummary(buildImportedDataSummary(preview.krsProfile, preview.companyData, imported.pkdSuggestion, Boolean(imported.seed)));
     refreshCoreMarketInputs(imported.input.profile.country, imported.input.profile.industry);
     setWizardImportApplied(true);
-    setCombinedImportStatus("Company data applied automatically. Choose a valuation type to continue.");
+    setCombinedImportStatus("Company data confirmed and applied. Choose a valuation type to continue.");
     setWizardStep(2);
   }
 
@@ -1467,7 +1471,7 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-3">
+          <div className={`grid gap-3 ${wizardImportApplied && companyData?.years.length ? "md:grid-cols-2" : "md:grid-cols-3"}`}>
             {[1, 2, ...(wizardImportApplied && companyData?.years.length ? [] : [3])].map((step) => (
               <button key={step} className={`rounded-lg border p-4 text-left text-sm font-semibold transition ${wizardStep === step ? "border-slate-950 bg-slate-950 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-teal-500"}`} onClick={() => setWizardStep(step as 1 | 2 | 3)}>
                 <span className={`text-xs uppercase tracking-[0.2em] ${wizardStep === step ? "text-slate-300" : "text-slate-500"}`}>{step === 1 ? "Company data" : step === 2 ? "Model path" : "Fallback"}</span>
@@ -1507,7 +1511,7 @@ export default function Home() {
                     {combinedImportStatus ? <p className="mt-3 text-sm text-slate-600">{combinedImportStatus}</p> : null}
                   </div>
 
-                  {combinedImportPreview ? <><DataReadinessPanel items={dataReadinessItems} score={sourceReadinessScore} /><CombinedCompanyImportPreview preview={combinedImportPreview} currency={wizardInput.currency} /></> : null}
+                  {combinedImportPreview ? <><DataReadinessPanel items={dataReadinessItems} score={sourceReadinessScore} /><CombinedCompanyImportPreview preview={combinedImportPreview} currency={wizardInput.currency} onConfirm={() => importCombinedCompanyData(combinedImportPreview)} /></> : null}
                 </div>
               )}
 
@@ -1853,7 +1857,7 @@ export default function Home() {
         </div>
 
         <WorkflowHeader id="wacc" eyebrow="Workflow 5" title="WACC" description="Build the discount rate using market inputs, private-company risk premia, capital structure, and tax assumptions." status={workflowSections[4].status} />
-        <div className="grid gap-5 lg:grid-cols-3">
+        <div className="grid gap-5">
           <Card>
             <CardHeader><CardTitle>WACC Assumptions</CardTitle><CardDescription>Cost of equity = Rf + beta × ERP + size premium + CSRP.</CardDescription></CardHeader>
             <CardContent className="grid gap-3">
@@ -1867,13 +1871,13 @@ export default function Home() {
                   <Badge className="border-teal-200 bg-white text-teal-800">Auto-updated</Badge>
                 </div>
                 {riskFreeRateSource ? (
-                  <div className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
-                    <span><strong>Source:</strong> {riskFreeRateSource.source}</span>
-                    <span><strong>Series ID:</strong> {riskFreeRateSource.seriesId ?? "Unavailable"}</span>
-                    <span><strong>Observation date:</strong> {riskFreeRateSource.observationDate ?? "Unavailable"}</span>
-                    <span><strong>Fetched at:</strong> {riskFreeRateSource.fetchedAt}</span>
-                    <span><strong>Confidence:</strong> {riskFreeRateSource.confidence}</span>
-                    <span><strong>Source status:</strong> {riskFreeRateSource.status}</span>
+                  <div className="mt-3 grid min-w-0 gap-2 text-xs text-slate-600 sm:grid-cols-2">
+                    <span className="break-words"><strong>Source:</strong> {riskFreeRateSource.source}</span>
+                    <span className="break-words"><strong>Series ID:</strong> {riskFreeRateSource.seriesId ?? "Unavailable"}</span>
+                    <span className="break-words"><strong>Observation date:</strong> {riskFreeRateSource.observationDate ?? "Unavailable"}</span>
+                    <span className="break-words"><strong>Fetched at:</strong> {riskFreeRateSource.fetchedAt}</span>
+                    <span className="break-words"><strong>Confidence:</strong> {riskFreeRateSource.confidence}</span>
+                    <span className="break-words"><strong>Source status:</strong> {riskFreeRateSource.status}</span>
                   </div>
                 ) : <p className="mt-3 text-xs text-slate-500">No live FRED risk-free rate has been fetched yet.</p>}
                 {riskFreeRateStatus ? <p className="mt-3 text-xs text-slate-500">{riskFreeRateStatus}{riskFreeRateManuallyEdited && riskFreeRateSource?.value !== null ? " Manual risk-free rate edits are preserved unless you refresh explicitly." : ""}</p> : null}
@@ -1888,15 +1892,15 @@ export default function Home() {
                   <Badge className="border-teal-200 bg-white text-teal-800">Auto-updated</Badge>
                 </div>
                 {erpSource ? (
-                  <div className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
-                    <span><strong>Mature market ERP:</strong> {erpSource.matureMarketErp !== null ? pct(erpSource.matureMarketErp) : "Unavailable"}</span>
-                    <span><strong>Country risk premium:</strong> {erpSource.countryRiskPremium !== null ? pct(erpSource.countryRiskPremium) : "Unavailable"}</span>
-                    <span><strong>Total ERP:</strong> {erpSource.totalErp !== null ? pct(erpSource.totalErp) : "Unavailable"}</span>
-                    <span><strong>Source:</strong> {erpSource.source}</span>
-                    <span><strong>Source date:</strong> {erpSource.sourceDate}</span>
-                    <span><strong>Dataset age:</strong> {erpSource.datasetAgeDays} days</span>
-                    <span><strong>Source status:</strong> {erpSource.refreshStatus}</span>
-                    <span><strong>Confidence:</strong> {erpSource.confidence}</span>
+                  <div className="mt-3 grid min-w-0 gap-2 text-xs text-slate-600 sm:grid-cols-2">
+                    <span className="break-words"><strong>Mature market ERP:</strong> {erpSource.matureMarketErp !== null ? pct(erpSource.matureMarketErp) : "Unavailable"}</span>
+                    <span className="break-words"><strong>Country risk premium:</strong> {erpSource.countryRiskPremium !== null ? pct(erpSource.countryRiskPremium) : "Unavailable"}</span>
+                    <span className="break-words"><strong>Total ERP:</strong> {erpSource.totalErp !== null ? pct(erpSource.totalErp) : "Unavailable"}</span>
+                    <span className="break-words"><strong>Source:</strong> {erpSource.source}</span>
+                    <span className="break-words"><strong>Source date:</strong> {erpSource.sourceDate}</span>
+                    <span className="break-words"><strong>Dataset age:</strong> {erpSource.datasetAgeDays} days</span>
+                    <span className="break-words"><strong>Source status:</strong> {erpSource.refreshStatus}</span>
+                    <span className="break-words"><strong>Confidence:</strong> {erpSource.confidence}</span>
                   </div>
                 ) : <p className="mt-3 text-xs text-slate-500">No Damodaran ERP seed has been loaded yet.</p>}
                 {erpSource?.warning ? <p className="mt-3 text-xs font-semibold text-amber-700">{erpSource.warning}</p> : null}
@@ -1912,16 +1916,16 @@ export default function Home() {
                   <Badge className="border-teal-200 bg-white text-teal-800">Auto-updated</Badge>
                 </div>
                 {betaSource ? (
-                  <div className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
-                    <span><strong>App industry:</strong> {betaSource.appIndustry || "Unavailable"}</span>
-                    <span><strong>Damodaran industry:</strong> {betaSource.damodaranIndustry ?? "Unavailable"}</span>
-                    <span><strong>Unlevered beta:</strong> {betaSource.unleveredBeta !== null ? betaSource.unleveredBeta.toFixed(2) : "Unavailable"}</span>
-                    <span><strong>Cash-adjusted beta:</strong> {betaSource.cashAdjustedBeta !== null ? betaSource.cashAdjustedBeta.toFixed(2) : "Unavailable"}</span>
-                    <span><strong>Source:</strong> {betaSource.source}</span>
-                    <span><strong>Source date:</strong> {betaSource.sourceDate}</span>
-                    <span><strong>Dataset age:</strong> {betaSource.datasetAgeDays} days</span>
-                    <span><strong>Source status:</strong> {betaSource.refreshStatus}</span>
-                    <span><strong>Confidence:</strong> {betaSource.confidence}</span>
+                  <div className="mt-3 grid min-w-0 gap-2 text-xs text-slate-600 sm:grid-cols-2">
+                    <span className="break-words"><strong>App industry:</strong> {betaSource.appIndustry || "Unavailable"}</span>
+                    <span className="break-words"><strong>Damodaran industry:</strong> {betaSource.damodaranIndustry ?? "Unavailable"}</span>
+                    <span className="break-words"><strong>Unlevered beta:</strong> {betaSource.unleveredBeta !== null ? betaSource.unleveredBeta.toFixed(2) : "Unavailable"}</span>
+                    <span className="break-words"><strong>Cash-adjusted beta:</strong> {betaSource.cashAdjustedBeta !== null ? betaSource.cashAdjustedBeta.toFixed(2) : "Unavailable"}</span>
+                    <span className="break-words"><strong>Source:</strong> {betaSource.source}</span>
+                    <span className="break-words"><strong>Source date:</strong> {betaSource.sourceDate}</span>
+                    <span className="break-words"><strong>Dataset age:</strong> {betaSource.datasetAgeDays} days</span>
+                    <span className="break-words"><strong>Source status:</strong> {betaSource.refreshStatus}</span>
+                    <span className="break-words"><strong>Confidence:</strong> {betaSource.confidence}</span>
                   </div>
                 ) : <p className="mt-3 text-xs text-slate-500">No Damodaran beta seed has been loaded yet.</p>}
                 {betaSource?.warning ? <p className="mt-3 text-xs font-semibold text-amber-700">{betaSource.warning}</p> : null}
