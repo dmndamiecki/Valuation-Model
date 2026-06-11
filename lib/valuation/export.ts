@@ -98,6 +98,15 @@ function safeMultiple(value: number): string {
   return Number.isFinite(value) ? `${value.toFixed(1)}x` : "N/M";
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 function csvEscape(value: string | number | boolean): string {
   const stringValue = String(value);
   return /[",\n]/.test(stringValue) ? `"${stringValue.replaceAll('"', '""')}"` : stringValue;
@@ -225,20 +234,19 @@ export function buildValuationConclusion(
   const bull = findScenario(scenarios, "Bull");
   const keyWarnings = diagnostics.diagnostics.slice(0, 5).map((diagnostic) => `${diagnostic.area}: ${diagnostic.message}`);
   const keyValuationDrivers = [
-    `Base adjusted equity value of ${safeMoney(base.adjustedEquityValue, input.profile.currency)} reflects a WACC of ${safePercent(executiveSummary.impliedWacc)} and terminal growth of ${safePercent(executiveSummary.terminalGrowth)}.`,
-    `Terminal value represents ${safePercent(executiveSummary.terminalValueContribution)} of enterprise value.`,
-    `Enterprise value implies ${safeMultiple(executiveSummary.evToNormalizedEbitda)} normalized EBITDA.`,
-    `Readiness posture is ${diagnostics.readiness.posture}: ${diagnostics.readiness.headline}`,
-    ...(marketValuation ? [`Weighted market enterprise value is ${safeMoney(marketValuation.weightedMarketEnterpriseValue, input.profile.currency)}, implying a DCF / market EV difference of ${safePercent(marketValuation.comparison.enterpriseValueDifferencePct)}.`] : []),
+    `Base valuation is ${safeMoney(base.adjustedEquityValue, input.profile.currency)}, with a current range of ${safeMoney(bear.adjustedEquityValue, input.profile.currency)} to ${safeMoney(bull.adjustedEquityValue, input.profile.currency)}.`,
+    `The main model drivers are WACC of ${safePercent(executiveSummary.impliedWacc)}, terminal growth of ${safePercent(executiveSummary.terminalGrowth)}, and EV / EBITDA of ${safeMultiple(executiveSummary.evToNormalizedEbitda)}.`,
+    `Readiness is ${diagnostics.readiness.posture}: ${diagnostics.readiness.headline}`,
+    ...(marketValuation ? [`The market cross-check implies ${safeMoney(marketValuation.weightedMarketEnterpriseValue, input.profile.currency)} enterprise value, a ${safePercent(marketValuation.comparison.enterpriseValueDifferencePct)} difference versus DCF EV.`] : []),
   ];
-  const methodologyNote = "Valuation is based on an unlevered FCFF DCF, WACC discounting, selected terminal value method, EV-to-equity bridge, sequential private-company equity discounts, market-multiple cross-checks, readiness diagnostics, and exportable banker-grade report objects.";
+  const methodologyNote = "Methodology: FCFF DCF with WACC discounting, terminal value, EV-to-equity bridge, private-company adjustments, market cross-checks, scenario analysis, sensitivity, and readiness diagnostics.";
   const summaryText = [
-    `${input.profile.companyName} valuation conclusion`,
-    `Base adjusted equity value: ${safeMoney(base.adjustedEquityValue, input.profile.currency)}.`,
-    `Bear / Bull adjusted equity value range: ${safeMoney(bear.adjustedEquityValue, input.profile.currency)} to ${safeMoney(bull.adjustedEquityValue, input.profile.currency)}.`,
-    `Key drivers: ${keyValuationDrivers.join(" ")}`,
-    `Key warnings: ${keyWarnings.length > 0 ? keyWarnings.join(" ") : "No diagnostics warnings or critical issues currently triggered."}`,
-    `Methodology note: ${methodologyNote}`,
+    `${input.profile.companyName || "Company"} valuation summary`,
+    `Indicated owner-facing equity value: ${safeMoney(base.adjustedEquityValue, input.profile.currency)}.`,
+    `Reasonable range: ${safeMoney(bear.adjustedEquityValue, input.profile.currency)} to ${safeMoney(bull.adjustedEquityValue, input.profile.currency)}.`,
+    `What matters most: ${keyValuationDrivers.join(" ")}`,
+    `Items to review: ${keyWarnings.length > 0 ? keyWarnings.join(" ") : "No critical diagnostics are currently active."}`,
+    methodologyNote,
   ].join("\n\n");
 
   return {
@@ -327,6 +335,110 @@ export function buildReportSummaryText(report: ValuationReport): string {
 
 export function buildReportJson(report: ValuationReport): string {
   return JSON.stringify(report, null, 2);
+}
+
+export function buildPdfReportHtml(report: ValuationReport): string {
+  const currency = report.companyProfile.currency;
+  const conclusion = report.valuationConclusion;
+  const executive = report.executiveSummary;
+  const readiness = report.bankerGradeOutput.readiness;
+  const generatedDate = new Date(report.generatedAt).toLocaleString("en-US");
+  const warnings = conclusion.keyWarnings.length > 0 ? conclusion.keyWarnings : ["No critical diagnostics are currently active."];
+  const footballRows = report.bankerGradeOutput.footballField.map((item) => `
+    <tr>
+      <td>${escapeHtml(item.method)}</td>
+      <td>${escapeHtml(safeMoney(item.low, currency))}</td>
+      <td>${escapeHtml(safeMoney(item.midpoint, currency))}</td>
+      <td>${escapeHtml(safeMoney(item.high, currency))}</td>
+    </tr>
+  `).join("");
+  const scenarioRows = report.scenarioAnalysis.map((scenario) => `
+    <tr>
+      <td>${escapeHtml(scenario.name)}</td>
+      <td>${escapeHtml(safeMoney(scenario.enterpriseValue, currency))}</td>
+      <td>${escapeHtml(safeMoney(scenario.equityValue, currency))}</td>
+      <td>${escapeHtml(safeMoney(scenario.adjustedEquityValue, currency))}</td>
+      <td>${escapeHtml(safeMultiple(scenario.evToEbitda))}</td>
+    </tr>
+  `).join("");
+
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>${escapeHtml(report.companyProfile.companyName || "Valuation")} - Valuation Report</title>
+  <style>
+    @page { size: A4; margin: 18mm; }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: #0f172a; font-family: Arial, Helvetica, sans-serif; background: #fff; }
+    .page { max-width: 980px; margin: 0 auto; }
+    .cover { border-bottom: 2px solid #0f766e; padding-bottom: 22px; margin-bottom: 24px; }
+    .eyebrow { color: #0f766e; font-size: 11px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; }
+    h1 { margin: 10px 0 8px; font-size: 30px; line-height: 1.08; }
+    h2 { margin: 28px 0 10px; font-size: 17px; }
+    p { margin: 0; line-height: 1.55; }
+    .muted { color: #52627a; font-size: 12px; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 18px 0; }
+    .metric { border: 1px solid #d8e0ea; border-radius: 10px; padding: 14px; background: #f8fafc; }
+    .metric-label { color: #52627a; font-size: 10px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; }
+    .metric-value { margin-top: 8px; font-size: 21px; font-weight: 800; }
+    .callout { border: 1px solid #c9e7df; border-left: 5px solid #0f766e; border-radius: 10px; padding: 16px; background: #f3fbf8; margin: 16px 0; }
+    .risk { border-color: #f1d6a8; border-left-color: #d97706; background: #fffaf0; }
+    ul { margin: 10px 0 0 20px; padding: 0; }
+    li { margin: 6px 0; line-height: 1.45; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
+    th { color: #52627a; text-align: left; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; border-bottom: 1px solid #d8e0ea; padding: 9px 6px; }
+    td { border-bottom: 1px solid #edf2f7; padding: 10px 6px; }
+    .footer { margin-top: 28px; padding-top: 12px; border-top: 1px solid #d8e0ea; color: #52627a; font-size: 11px; }
+    @media print { .no-print { display: none; } body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="cover">
+      <div class="eyebrow">Valuation report</div>
+      <h1>${escapeHtml(report.companyProfile.companyName || "Company valuation")}</h1>
+      <p class="muted">Generated ${escapeHtml(generatedDate)} · Currency: ${escapeHtml(currency)} in 000s · ${escapeHtml(report.companyProfile.country)}</p>
+    </section>
+
+    <section class="callout">
+      <div class="eyebrow">Investment view</div>
+      <p><strong>Indicated owner-facing equity value is ${escapeHtml(safeMoney(conclusion.baseAdjustedEquityValue, currency))}</strong>, within a current range of ${escapeHtml(safeMoney(conclusion.bearAdjustedEquityValue, currency))} to ${escapeHtml(safeMoney(conclusion.bullAdjustedEquityValue, currency))}. Readiness is ${escapeHtml(readiness.posture)}: ${escapeHtml(readiness.headline)}</p>
+    </section>
+
+    <div class="grid">
+      <div class="metric"><div class="metric-label">Base equity value</div><div class="metric-value">${escapeHtml(safeMoney(conclusion.baseAdjustedEquityValue, currency))}</div></div>
+      <div class="metric"><div class="metric-label">Valuation range</div><div class="metric-value">${escapeHtml(safeMoney(conclusion.bearAdjustedEquityValue, currency))} - ${escapeHtml(safeMoney(conclusion.bullAdjustedEquityValue, currency))}</div></div>
+      <div class="metric"><div class="metric-label">EV / EBITDA</div><div class="metric-value">${escapeHtml(safeMultiple(executive.evToNormalizedEbitda))}</div></div>
+    </div>
+
+    <h2>What Drives The Valuation</h2>
+    <ul>${conclusion.keyValuationDrivers.map((driver) => `<li>${escapeHtml(driver)}</li>`).join("")}</ul>
+
+    <section class="callout risk">
+      <div class="eyebrow">Items to review before external use</div>
+      <ul>${warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}</ul>
+    </section>
+
+    <h2>Valuation Range By Method</h2>
+    <table>
+      <thead><tr><th>Method</th><th>Low</th><th>Midpoint</th><th>High</th></tr></thead>
+      <tbody>${footballRows}</tbody>
+    </table>
+
+    <h2>Scenario Summary</h2>
+    <table>
+      <thead><tr><th>Scenario</th><th>Enterprise value</th><th>Equity value</th><th>Adjusted equity</th><th>EV / EBITDA</th></tr></thead>
+      <tbody>${scenarioRows}</tbody>
+    </table>
+
+    <h2>Methodology</h2>
+    <p>${escapeHtml(conclusion.methodologyNote)}</p>
+
+    <div class="footer">Prepared by Valuation Workbench. This report is a decision-support output and should be reviewed before external distribution.</div>
+  </div>
+</body>
+</html>`;
 }
 
 export function buildForecastCsv(report: ValuationReport): string {

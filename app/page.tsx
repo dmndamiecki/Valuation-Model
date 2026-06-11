@@ -31,7 +31,7 @@ import { calculateEquityBridge, calculatePrivateCompanyDiscounts } from "@/lib/v
 import { countryOptions, currencyOptions, formatCurrencyOption, getDefaultCurrencyForCountry } from "@/lib/valuation/company-profile";
 import { calculateDcf } from "@/lib/valuation/dcf";
 import { calculateValuationDiagnostics } from "@/lib/valuation/diagnostics";
-import { buildCombinedCsvExport, buildReportJson, buildReportSummaryText, buildValuationReport } from "@/lib/valuation/export";
+import { buildCombinedCsvExport, buildPdfReportHtml, buildReportJson, buildReportSummaryText, buildValuationReport } from "@/lib/valuation/export";
 import { createBlankValuationInput } from "@/lib/valuation/default-data";
 import { calculateNormalizationMarginUplift, forecastFinancials, normalizeLatestEbitda, seedForecastFromHistoricals, sumNormalizationAdjustments, type HistoricalForecastSeed } from "@/lib/valuation/forecast";
 import {
@@ -1360,6 +1360,18 @@ export default function Home() {
     downloadTextFile("sme-dcf-valuation-tables.csv", buildCombinedCsvExport(model.valuationReport), "text/csv");
   }
 
+  function openPdfReport() {
+    const reportWindow = window.open("", "_blank", "noopener,noreferrer");
+    if (!reportWindow) {
+      return;
+    }
+    reportWindow.document.open();
+    reportWindow.document.write(buildPdfReportHtml(model.valuationReport));
+    reportWindow.document.close();
+    reportWindow.focus();
+    setTimeout(() => reportWindow.print(), 400);
+  }
+
   const normalizedEbitda = normalizeLatestEbitda(input.historicals, input.normalizationAdjustments);
   const adjustmentTotal = sumNormalizationAdjustments(input.normalizationAdjustments);
   const normalizationMarginUplift = calculateNormalizationMarginUplift(input.historicals, input.normalizationAdjustments);
@@ -1451,6 +1463,15 @@ export default function Home() {
   const valuationConfidenceScore = Math.max(20, Math.min(95, sourceReadinessScore + (model.diagnostics.criticalCount === 0 ? 10 : 0) - diagnosticPenalty));
   const valuationRangeLow = Math.min(model.valuationReport.valuationConclusion.bearAdjustedEquityValue, model.valuationReport.valuationConclusion.baseAdjustedEquityValue, model.valuationReport.valuationConclusion.bullAdjustedEquityValue);
   const valuationRangeHigh = Math.max(model.valuationReport.valuationConclusion.bearAdjustedEquityValue, model.valuationReport.valuationConclusion.baseAdjustedEquityValue, model.valuationReport.valuationConclusion.bullAdjustedEquityValue);
+  const summaryDrivers = model.valuationReport.valuationConclusion.keyValuationDrivers.slice(0, 4);
+  const summaryWarnings = model.valuationReport.valuationConclusion.keyWarnings.length > 0
+    ? model.valuationReport.valuationConclusion.keyWarnings.slice(0, 4)
+    : ["No critical diagnostics are currently active. Review assumptions before sharing externally."];
+  const decisionHeadline = model.diagnostics.criticalCount > 0
+    ? "Use as a working draft until critical diagnostics are resolved."
+    : valuationConfidenceScore >= 80
+      ? "Ready for internal review, with assumptions still available for professional tuning."
+      : "Good screening output, but source support and assumptions should be reviewed before relying on it.";
 
   if (!workspaceStarted) {
     return (
@@ -2000,43 +2021,56 @@ export default function Home() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <Badge>Valuation output</Badge>
-              <h2 className="mt-3 text-2xl font-bold text-slate-950">Investment committee summary</h2>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">A finance-ready output pack with a KRS-built valuation range, headline metrics, DCF mechanics, bridge schedules, private company adjustments, diagnostics, and exportable report files.</p>
+              <h2 className="mt-3 text-2xl font-bold text-slate-950">Decision summary</h2>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">A clean owner-facing conclusion first, with technical schedules kept below for professional review.</p>
             </div>
             <a href="#export" className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800">Go to export</a>
           </div>
 
-          <ValuationRangePanel
-            currency={input.profile.currency}
-            low={valuationRangeLow}
-            base={model.valuationReport.valuationConclusion.baseAdjustedEquityValue}
-            high={valuationRangeHigh}
-            confidenceScore={valuationConfidenceScore}
-            readinessHeadline={model.diagnostics.readiness.headline}
-          />
-
-          <Card>
+          <Card className="border-slate-300 bg-white">
             <CardHeader>
-              <CardTitle>Valuation Conclusion</CardTitle>
-              <CardDescription>Generated from the structured valuation report object.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-3 md:grid-cols-3">
-                <MetricCard label="Base Adjusted Equity" value={money(model.valuationReport.valuationConclusion.baseAdjustedEquityValue, input.profile.currency)} helper="Current user inputs" />
-                <MetricCard label="Bear Case" value={money(model.valuationReport.valuationConclusion.bearAdjustedEquityValue, input.profile.currency)} helper="Downside scenario" />
-                <MetricCard label="Bull Case" value={money(model.valuationReport.valuationConclusion.bullAdjustedEquityValue, input.profile.currency)} helper="Upside scenario" />
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <CardTitle>Recommended valuation view</CardTitle>
+                  <CardDescription>Plain-language conclusion for owners, advisors, and internal decision makers.</CardDescription>
+                </div>
+                <Badge className={valuationConfidenceScore >= 80 ? "border-emerald-200 bg-emerald-50 text-emerald-800" : valuationConfidenceScore >= 60 ? "border-amber-200 bg-amber-50 text-amber-800" : "border-red-200 bg-red-50 text-red-800"}>Confidence {valuationConfidenceScore}%</Badge>
               </div>
-              <div className="rounded-xl bg-slate-50 p-4 text-sm leading-6 text-slate-700">
-                {model.valuationReport.valuationConclusion.keyValuationDrivers.map((driver) => <p key={driver}>{driver}</p>)}
-                <p className="mt-3 font-medium text-slate-950">{model.valuationReport.valuationConclusion.methodologyNote}</p>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <div className="rounded-xl border border-teal-200 bg-teal-50/70 p-5">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-teal-800">Investment view</p>
+                <p className="mt-3 text-base leading-7 text-slate-800">
+                  The indicated owner-facing equity value is <span className="font-bold text-slate-950">{money(model.valuationReport.valuationConclusion.baseAdjustedEquityValue, input.profile.currency)}</span>, within a current range of <span className="font-bold text-slate-950">{money(valuationRangeLow, input.profile.currency)}</span> to <span className="font-bold text-slate-950">{money(valuationRangeHigh, input.profile.currency)}</span>.
+                </p>
+                <p className="mt-2 text-sm leading-6 text-slate-700">{decisionHeadline}</p>
+              </div>
+              <div className="grid gap-3 md:grid-cols-3">
+                <MetricCard label="Owner equity value" value={money(model.valuationReport.valuationConclusion.baseAdjustedEquityValue, input.profile.currency)} helper="Base case after private-company adjustments" />
+                <MetricCard label="Valuation range" value={`${money(valuationRangeLow, input.profile.currency)} - ${money(valuationRangeHigh, input.profile.currency)}`} helper="Bear to bull adjusted equity values" />
+                <MetricCard label="Market multiple" value={multiple(model.executiveSummary.evToNormalizedEbitda)} helper="Current EV / normalized EBITDA" />
+              </div>
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <h3 className="text-sm font-bold text-slate-950">What drives the valuation</h3>
+                  <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
+                    {summaryDrivers.map((driver) => <li key={driver}>{driver}</li>)}
+                  </ul>
+                </div>
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                  <h3 className="text-sm font-bold text-amber-950">What to review before sharing</h3>
+                  <ul className="mt-3 space-y-2 text-sm leading-6 text-amber-950">
+                    {summaryWarnings.map((warning) => <li key={warning}>{warning}</li>)}
+                  </ul>
+                </div>
               </div>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle>Executive Summary</CardTitle>
-              <CardDescription>Headline valuation conclusion and implied trading metrics.</CardDescription>
+              <CardTitle>Professional metrics</CardTitle>
+              <CardDescription>Technical outputs for advisors and analysts who need to review the model assumptions.</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-3 md:grid-cols-2">
               <MetricCard label="Enterprise Value" value={money(model.executiveSummary.enterpriseValue, input.profile.currency)} helper="DCF enterprise value" />
@@ -2300,16 +2334,17 @@ export default function Home() {
           </CardContent>
         </Card>
 
-        <WorkflowHeader id="export" eyebrow="Workflow 10" title="Export" description="Copy the valuation summary or download the full local model as JSON and CSV files. No server-side APIs are used." status={workflowSections[9].status} />
+        <WorkflowHeader id="export" eyebrow="Workflow 10" title="Export" description="Create a clean client-ready PDF report, copy the summary, or download the model data for deeper review." status={workflowSections[9].status} />
         <Card>
           <CardHeader>
             <CardTitle>Export Valuation Package</CardTitle>
-            <CardDescription>Export the structured valuation report and supporting tables for review, sharing, or offline analysis.</CardDescription>
+            <CardDescription>Use PDF for a polished review pack. JSON and CSV remain available for audit, handoff, and offline analysis.</CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-3">
+          <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <button className="rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={openPdfReport}>Create PDF report</button>
             <button className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={copyReportSummary}>Copy report summary</button>
             <button className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={downloadJsonReport}>Download JSON</button>
-            <button className="rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={downloadCsvReport}>Download CSV</button>
+            <button className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={downloadCsvReport}>Download CSV</button>
           </CardContent>
         </Card>
           </>
