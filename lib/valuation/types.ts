@@ -105,6 +105,13 @@ export const marketMultipleSourceSchema = z.object({
   dataset: z.string().optional(),
   sourceFile: z.string().optional(),
   sourceUpdatedAt: z.string().optional(),
+  publicComparableCount: z.number().int().nonnegative().optional(),
+  publicComparableIncludedCount: z.number().int().nonnegative().optional(),
+  publicComparableExcludedCount: z.number().int().nonnegative().optional(),
+  publicComparableStaleCount: z.number().int().nonnegative().optional(),
+  publicComparableNegativeEbitdaCount: z.number().int().nonnegative().optional(),
+  benchmarkAssistantGeneratedAt: z.string().optional(),
+  benchmarkAssistantAuditNote: z.string().optional(),
 });
 
 export const marketMultiplesAssumptionsSchema = z.object({
@@ -125,6 +132,13 @@ export const marketMultiplesAssumptionsSchema = z.object({
     dataset: undefined,
     sourceFile: undefined,
     sourceUpdatedAt: undefined,
+    publicComparableCount: undefined,
+    publicComparableIncludedCount: undefined,
+    publicComparableExcludedCount: undefined,
+    publicComparableStaleCount: undefined,
+    publicComparableNegativeEbitdaCount: undefined,
+    benchmarkAssistantGeneratedAt: undefined,
+    benchmarkAssistantAuditNote: undefined,
   }),
 });
 

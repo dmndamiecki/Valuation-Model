@@ -45,6 +45,8 @@ import {
 import { calculateScenarioAnalysis } from "@/lib/valuation/scenarios";
 import { applyIndustryTemplate, getIndustryTemplate, industryTemplates, type IndustryTemplate } from "@/lib/valuation/industry-templates";
 import { assessMarketMultipleIntelligence, marketMultipleSourceKindLabel, type MarketMultipleSourceKind } from "@/lib/valuation/market-multiple-intelligence";
+import type { BenchmarkAssistantResult } from "@/lib/valuation/benchmark-assistant";
+import { summarizePublicComps } from "@/lib/valuation/public-comps";
 import { suggestIndustryTemplateFromPkd, type PkdIndustrySuggestion } from "@/lib/valuation/pkd-industry-mapping";
 import { buildValuationInputFromSimpleMode, simpleInputFromValuationInput, type SimpleModeInput } from "@/lib/valuation/simple-mode";
 import { buildCenteredSensitivityCases, buildSensitivityTable } from "@/lib/valuation/sensitivity";
@@ -858,6 +860,8 @@ export default function Home() {
   const [selectedEngineId, setSelectedEngineId] = useState<ValuationEngineId | null>("dcf");
   const [peerBenchmarks, setPeerBenchmarks] = useState<PeerBenchmarkResult | null>(null);
   const [peerBenchmarkStatus, setPeerBenchmarkStatus] = useState("");
+  const [benchmarkAssistant, setBenchmarkAssistant] = useState<BenchmarkAssistantResult | null>(null);
+  const [benchmarkAssistantStatus, setBenchmarkAssistantStatus] = useState("");
 
   const validation = useMemo(() => valuationInputSchema.safeParse(input), [input]);
   const model = useMemo(() => {
@@ -1093,6 +1097,101 @@ export default function Home() {
       setSelectedEngineId("comparableCompanies");
       setPeerBenchmarkStatus(error instanceof Error ? error.message : "BizRaport peer screen failed.");
     }
+  }
+
+  async function runBenchmarkAssistant() {
+    setBenchmarkAssistantStatus("Running benchmark assistant...");
+    try {
+      const response = await fetch("/api/ai/benchmark-assistant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ input, damodaranBenchmark: damodaranEuropeBenchmark, peerBenchmarks }),
+      });
+      const payload = await response.json() as BenchmarkAssistantResult & { error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Benchmark assistant failed.");
+      }
+      setBenchmarkAssistant(payload);
+      const statusLabel = payload.status === "ready" ? "ready" : payload.status === "unavailable" ? "fallback ready" : "needs review";
+      setBenchmarkAssistantStatus(`Benchmark assistant ${statusLabel}: ${payload.suggestedDamodaranIndustry ?? "manual industry review needed"}.`);
+    } catch (error) {
+      setBenchmarkAssistant(null);
+      setBenchmarkAssistantStatus(error instanceof Error ? error.message : "Benchmark assistant failed.");
+    }
+  }
+
+  function useBenchmarkAssistantAsSource() {
+    if (!benchmarkAssistant) {
+      setBenchmarkAssistantStatus("Run the benchmark assistant before applying its source context.");
+      return;
+    }
+
+    const publicCompSummary = summarizePublicComps(benchmarkAssistant.suggestedPublicComps);
+    setInput((current) => ({
+      ...current,
+      marketMultiples: {
+        ...current.marketMultiples,
+        source: {
+          ...current.marketMultiples.source,
+          kind: "aiSuggested",
+          label: `Benchmark Assistant - ${benchmarkAssistant.suggestedDamodaranIndustry ?? "manual industry review"}`,
+          sourceUrl: current.marketMultiples.source.sourceUrl,
+          sourceDate: benchmarkAssistant.generatedAt,
+          confidence: benchmarkAssistant.damodaranConfidence,
+          approvalStatus: "draft",
+          rationale: benchmarkAssistant.benchmarkRationale,
+          damodaranIndustry: benchmarkAssistant.suggestedDamodaranIndustry ?? current.marketMultiples.source.damodaranIndustry,
+          region: current.marketMultiples.source.region ?? "Europe",
+          dataset: "AI-assisted benchmark selection; numeric data must be sourced separately",
+          sourceFile: current.marketMultiples.source.sourceFile,
+          sourceUpdatedAt: benchmarkAssistant.generatedAt,
+          publicComparableCount: publicCompSummary.totalCount,
+          publicComparableIncludedCount: publicCompSummary.includedCount,
+          publicComparableExcludedCount: publicCompSummary.excludedCount,
+          publicComparableStaleCount: publicCompSummary.staleCount,
+          publicComparableNegativeEbitdaCount: publicCompSummary.negativeEbitdaCount,
+          benchmarkAssistantGeneratedAt: benchmarkAssistant.generatedAt,
+          benchmarkAssistantAuditNote: benchmarkAssistant.auditNote,
+        },
+      },
+    }));
+    setBenchmarkAssistantStatus("Benchmark assistant rationale attached. Multiples remain draft until source data is approved.");
+  }
+
+  function reviewSuggestedPublicComps() {
+    if (!benchmarkAssistant) {
+      setBenchmarkAssistantStatus("Run the benchmark assistant before reviewing public comps.");
+      return;
+    }
+
+    const publicCompSummary = summarizePublicComps(benchmarkAssistant.suggestedPublicComps);
+    setInput((current) => ({
+      ...current,
+      marketMultiples: {
+        ...current.marketMultiples,
+        source: {
+          ...current.marketMultiples.source,
+          kind: "publicComparable",
+          label: `GPW/NewConnect watchlist - ${benchmarkAssistant.suggestedDamodaranIndustry ?? current.profile.industry}`,
+          sourceDate: benchmarkAssistant.generatedAt,
+          confidence: "low",
+          approvalStatus: "draft",
+          rationale: "Public comparable watchlist was generated by the benchmark assistant. Attach source-traced public-market financial data before using GPW/NewConnect multiples as valuation evidence.",
+          damodaranIndustry: benchmarkAssistant.suggestedDamodaranIndustry ?? current.marketMultiples.source.damodaranIndustry,
+          region: "Poland / Europe",
+          dataset: "GPW/NewConnect public comps placeholder",
+          sourceUpdatedAt: benchmarkAssistant.generatedAt,
+          publicComparableCount: publicCompSummary.totalCount,
+          publicComparableIncludedCount: publicCompSummary.includedCount,
+          publicComparableExcludedCount: publicCompSummary.excludedCount,
+          publicComparableStaleCount: publicCompSummary.staleCount,
+          publicComparableNegativeEbitdaCount: publicCompSummary.negativeEbitdaCount,
+          benchmarkAssistantGeneratedAt: benchmarkAssistant.generatedAt,
+          benchmarkAssistantAuditNote: benchmarkAssistant.auditNote,
+        },
+      },
+    }));
+    setBenchmarkAssistantStatus("Public comps watchlist attached as draft. Add source-traced market data before approval.");
   }
 
   function applyRiskFreeRateResult(result: FredRiskFreeRateResult, force = false) {
@@ -1375,6 +1474,8 @@ export default function Home() {
     const imported = buildImportedValuationInput(preview.krsProfile, preview.companyData);
     setPeerBenchmarks(null);
     setPeerBenchmarkStatus("Comparable Companies peer screen needs to be refreshed for this company.");
+    setBenchmarkAssistant(null);
+    setBenchmarkAssistantStatus("Benchmark Assistant needs to be rerun for this company.");
     setInput(imported.input);
     setSimpleInput(imported.simpleInput);
     setWizardInput((current) => ({
@@ -1560,6 +1661,8 @@ export default function Home() {
     }
     setPeerBenchmarks(null);
     setPeerBenchmarkStatus("Comparable Companies peer screen needs to be refreshed after importing company data.");
+    setBenchmarkAssistant(null);
+    setBenchmarkAssistantStatus("Benchmark Assistant needs to be rerun after importing company data.");
     const latestRevenue = latestRevenueYear(companyData);
     const latestEbitda = latestEbitdaYear(companyData);
     const companyName = companyData.companyName?.value || input.profile.companyName;
@@ -1773,6 +1876,8 @@ export default function Home() {
     setImportedDataSummary(null);
     setPeerBenchmarks(null);
     setPeerBenchmarkStatus("");
+    setBenchmarkAssistant(null);
+    setBenchmarkAssistantStatus("");
     setRiskFreeRateSource(null);
     setRiskFreeRateStatus("");
     setRiskFreeRateManuallyEdited(false);
@@ -2747,6 +2852,87 @@ export default function Home() {
               <NumberField label="Benchmark EV / Revenue" value={input.marketMultiples.evRevenueMultiple} onChange={(value) => updateMarketMultipleValue("evRevenueMultiple", value)} />
               <NumberField label="EV / EBITDA weighting" value={input.marketMultiples.ebitdaWeight} percent onChange={(value) => update(["marketMultiples", "ebitdaWeight"], value)} />
               <NumberField label="DCF blend weighting" value={input.marketMultiples.dcfWeight} percent onChange={(value) => update(["marketMultiples", "dcfWeight"], value)} />
+            </div>
+
+            <div className="rounded-lg border border-teal-200 bg-teal-50 p-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <p className="text-sm font-bold text-teal-950">Benchmark Assistant</p>
+                  <p className="mt-1 max-w-3xl text-sm leading-6 text-teal-900">AI coordinates Damodaran, BizRaport and GPW/NewConnect peer selection. It writes rationale and checks; numeric valuation evidence must still come from source-traced data.</p>
+                  {benchmarkAssistantStatus ? <p className="mt-2 text-xs font-semibold text-teal-800">{benchmarkAssistantStatus}</p> : null}
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <button className="rounded-md bg-teal-700 px-4 py-2 text-sm font-bold text-white transition hover:bg-teal-800" onClick={runBenchmarkAssistant}>Run benchmark assistant</button>
+                  <button className="rounded-md border border-teal-300 bg-white px-4 py-2 text-sm font-bold text-teal-900 transition hover:bg-teal-100" onClick={useBenchmarkAssistantAsSource}>Attach rationale</button>
+                  <button className="rounded-md border border-teal-300 bg-white px-4 py-2 text-sm font-bold text-teal-900 transition hover:bg-teal-100" onClick={reviewSuggestedPublicComps}>Review public comps</button>
+                </div>
+              </div>
+
+              {benchmarkAssistant ? (
+                <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(300px,0.8fr)]">
+                  <div className="rounded-md border border-teal-100 bg-white p-4">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Suggested benchmark</p>
+                        <p className="mt-1 text-base font-bold text-slate-950">{benchmarkAssistant.suggestedDamodaranIndustry ?? "Manual industry review needed"}</p>
+                      </div>
+                      <Badge className={benchmarkAssistant.damodaranConfidence === "high" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : benchmarkAssistant.damodaranConfidence === "medium" ? "border-blue-200 bg-blue-50 text-blue-800" : "border-amber-200 bg-amber-50 text-amber-800"}>{benchmarkAssistant.damodaranConfidence}</Badge>
+                    </div>
+                    <p className="mt-3 text-sm leading-6 text-slate-600">{benchmarkAssistant.industryRationale}</p>
+                    <p className="mt-3 text-sm leading-6 text-slate-700">{benchmarkAssistant.benchmarkRationale}</p>
+                    <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                      {benchmarkAssistant.nextActions.slice(0, 4).map((action) => (
+                        <div key={action} className="rounded-md border border-slate-100 bg-slate-50 p-3 text-xs leading-5 text-slate-700">{action}</div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-md border border-teal-100 bg-white p-4">
+                    <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">BizRaport query</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">{benchmarkAssistant.bizRaportRationale}</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {Object.entries(benchmarkAssistant.bizRaportFilters).slice(0, 8).map(([key, value]) => (
+                        <span key={key} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700">{key}: {String(value)}</span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-md border border-teal-100 bg-white p-4 xl:col-span-2">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">GPW / NewConnect watchlist</p>
+                      <Badge className="border-amber-200 bg-amber-50 text-amber-800">numbers pending source data</Badge>
+                    </div>
+                    <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                      {benchmarkAssistant.suggestedPublicComps.map((company) => (
+                        <div key={`${company.market}-${company.ticker}`} className="rounded-md border border-slate-100 bg-slate-50 p-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="text-sm font-bold text-slate-950">{company.ticker} · {company.companyName}</p>
+                              <p className="mt-1 text-xs font-semibold text-slate-500">{company.market}</p>
+                            </div>
+                            <Badge className="border-slate-200 bg-white text-slate-700">{company.inclusionStatus}</Badge>
+                          </div>
+                          <p className="mt-2 text-xs leading-5 text-slate-600">{company.rationale}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {benchmarkAssistant.sanityWarnings.length > 0 ? (
+                    <div className="rounded-md border border-amber-200 bg-amber-50 p-4 xl:col-span-2">
+                      <p className="text-xs font-bold uppercase tracking-[0.12em] text-amber-800">Sanity checks</p>
+                      <div className="mt-3 grid gap-2 md:grid-cols-2">
+                        {benchmarkAssistant.sanityWarnings.map((warning) => (
+                          <div key={`${warning.area}-${warning.message}`} className="rounded-md border border-amber-100 bg-white p-3 text-xs leading-5 text-amber-950">
+                            <p className="font-bold">{warning.message}</p>
+                            <p className="mt-1">{warning.suggestedAction}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
 
             <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">

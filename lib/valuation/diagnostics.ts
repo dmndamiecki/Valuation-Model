@@ -417,6 +417,63 @@ export function calculateValuationDiagnostics(input: ValuationInput): Diagnostic
     });
   }
 
+  if (input.marketMultiples.source.kind === "publicComparable") {
+    const includedCount = input.marketMultiples.source.publicComparableIncludedCount ?? 0;
+    if (includedCount < 3) {
+      diagnostics.push({
+        code: "PUBLIC_COMPS_SAMPLE_TOO_SMALL",
+        severity: "warning",
+        area: "Market Approach",
+        message: `Public comparable company support has only ${includedCount} included peer(s).`,
+        suggestedAction: "Use at least three analyst-reviewed GPW/NewConnect peers or fall back to Damodaran Europe sector evidence before approval.",
+      });
+    }
+
+    if ((input.marketMultiples.source.publicComparableNegativeEbitdaCount ?? 0) > 0) {
+      diagnostics.push({
+        code: "PUBLIC_COMPS_NEGATIVE_EBITDA",
+        severity: "warning",
+        area: "Market Approach",
+        message: "Public comparable set includes companies with zero or negative EBITDA.",
+        suggestedAction: "Exclude negative EBITDA peers from EV/EBITDA or use EV/Revenue with explicit rationale.",
+      });
+    }
+
+    if ((input.marketMultiples.source.publicComparableStaleCount ?? 0) > 0) {
+      diagnostics.push({
+        code: "PUBLIC_COMPS_STALE_DATA",
+        severity: "warning",
+        area: "Market Approach",
+        message: "Public comparable set includes stale price or financial statement dates.",
+        suggestedAction: "Refresh GPW/NewConnect prices and latest reported financials before approving the benchmark.",
+      });
+    }
+  }
+
+  if (input.marketMultiples.source.kind === "aiSuggested") {
+    diagnostics.push({
+      code: "AI_SUGGESTED_MULTIPLES_REQUIRE_SOURCE_DATA",
+      severity: "warning",
+      area: "Market Approach",
+      message: "Benchmark assistant output is being used as source context, but AI is not a numeric market-data source.",
+      suggestedAction: "Attach Damodaran Europe, GPW/NewConnect, licensed provider, or analyst-entered public-comparable data before approval.",
+    });
+  }
+
+  const sourceDateTime = Date.parse(input.marketMultiples.source.sourceDate);
+  if (Number.isFinite(sourceDateTime)) {
+    const ageDays = (Date.now() - sourceDateTime) / 86_400_000;
+    if (ageDays > 365) {
+      diagnostics.push({
+        code: "MARKET_MULTIPLE_SOURCE_DATE_STALE",
+        severity: "warning",
+        area: "Market Approach",
+        message: `Market multiple source date is ${Math.round(ageDays)} days old.`,
+        suggestedAction: "Refresh the source or document why older sector data remains relevant.",
+      });
+    }
+  }
+
   if (input.marketMultiples.evEbitdaMultiple > 12 || input.marketMultiples.evRevenueMultiple > 4) {
     diagnostics.push({
       code: "MARKET_MULTIPLE_ABOVE_SME_SCREENING_RANGE",
