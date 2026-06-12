@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { createDamodaranManualSeedSnapshot } from "@/lib/data-sources/damodaran";
 import type { DamodaranBetaSuggestion } from "@/lib/data-sources/damodaran-beta";
 import type { DamodaranErpSuggestion } from "@/lib/data-sources/damodaran-erp";
+import type { DamodaranEuropeBenchmark } from "@/lib/data-sources/damodaran-europe";
 import { createFredManualSeedSnapshot, type FredRiskFreeRateResult } from "@/lib/data-sources/fred";
 import { cleanBizRaportKrs, isKrs, isNip } from "@/lib/data-sources/identifiers";
 import { getCompanyDataSources, getMarketDataSources } from "@/lib/data-sources/mapping";
@@ -43,10 +44,11 @@ import {
 } from "@/lib/valuation/output";
 import { calculateScenarioAnalysis } from "@/lib/valuation/scenarios";
 import { applyIndustryTemplate, getIndustryTemplate, industryTemplates, type IndustryTemplate } from "@/lib/valuation/industry-templates";
+import { assessMarketMultipleIntelligence, marketMultipleSourceKindLabel, type MarketMultipleSourceKind } from "@/lib/valuation/market-multiple-intelligence";
 import { suggestIndustryTemplateFromPkd, type PkdIndustrySuggestion } from "@/lib/valuation/pkd-industry-mapping";
 import { buildValuationInputFromSimpleMode, simpleInputFromValuationInput, type SimpleModeInput } from "@/lib/valuation/simple-mode";
 import { buildCenteredSensitivityCases, buildSensitivityTable } from "@/lib/valuation/sensitivity";
-import { valuationInputSchema, type ValuationInput } from "@/lib/valuation/types";
+import { valuationInputSchema, type MarketMultipleSource, type ValuationInput } from "@/lib/valuation/types";
 import { calculateWacc } from "@/lib/valuation/wacc";
 import { applyImportedBalanceSheet } from "@/lib/valuation/balance-sheet-import";
 import { runValuationEngines, type BlendedValuationRange, type ValuationEngineId, type ValuationEngineResult } from "@/lib/valuation/engine-runner";
@@ -193,6 +195,7 @@ const chartTooltipStyle = {
   boxShadow: "0 16px 40px rgba(15, 23, 42, 0.12)",
   color: "#0f172a",
 };
+const marketMultipleSourceKindOptions: MarketMultipleSourceKind[] = ["manual", "publicComparable", "damodaranSector", "licensedProvider", "aiSuggested"];
 
 function money(value: number, currency = "USD") {
   return Number.isFinite(value) ? `${currency} ${currencyFormatter.format(value)}` : "N/M";
@@ -850,6 +853,8 @@ export default function Home() {
   const [betaSource, setBetaSource] = useState<DamodaranBetaSuggestion | null>(null);
   const [betaStatus, setBetaStatus] = useState("");
   const [betaManuallyEdited, setBetaManuallyEdited] = useState(false);
+  const [damodaranEuropeBenchmark, setDamodaranEuropeBenchmark] = useState<DamodaranEuropeBenchmark | null>(null);
+  const [damodaranEuropeStatus, setDamodaranEuropeStatus] = useState("");
   const [selectedEngineId, setSelectedEngineId] = useState<ValuationEngineId | null>("dcf");
   const [peerBenchmarks, setPeerBenchmarks] = useState<PeerBenchmarkResult | null>(null);
   const [peerBenchmarkStatus, setPeerBenchmarkStatus] = useState("");
@@ -881,6 +886,48 @@ export default function Home() {
     setInput((current) => ({
       ...current,
       [path[0]]: { ...current[path[0]], [path[1]]: value },
+    }));
+  }
+
+  function updateMarketMultipleSource<K extends keyof MarketMultipleSource>(key: K, value: MarketMultipleSource[K]) {
+    setInput((current) => ({
+      ...current,
+      marketMultiples: {
+        ...current.marketMultiples,
+        source: {
+          ...current.marketMultiples.source,
+          [key]: value,
+          approvalStatus: key === "approvalStatus" ? value as MarketMultipleSource["approvalStatus"] : "draft",
+        },
+      },
+    }));
+  }
+
+  function approveMarketMultiples() {
+    setInput((current) => ({
+      ...current,
+      marketMultiples: {
+        ...current.marketMultiples,
+        source: {
+          ...current.marketMultiples.source,
+          approvalStatus: "approved",
+          sourceDate: current.marketMultiples.source.sourceDate === "Current model" ? current.profile.valuationDate : current.marketMultiples.source.sourceDate,
+        },
+      },
+    }));
+  }
+
+  function updateMarketMultipleValue(key: "evEbitdaMultiple" | "evRevenueMultiple", value: number) {
+    setInput((current) => ({
+      ...current,
+      marketMultiples: {
+        ...current.marketMultiples,
+        [key]: value,
+        source: {
+          ...current.marketMultiples.source,
+          approvalStatus: "draft",
+        },
+      },
     }));
   }
 
@@ -1157,7 +1204,7 @@ export default function Home() {
   }
 
   async function fetchBetaFromDamodaranSeed(industry = input.profile.industry) {
-    setBetaStatus("Refreshing beta from Damodaran manual seed...");
+    setBetaStatus("Refreshing beta from Damodaran Europe snapshot...");
     try {
       const response = await fetch(`/api/market-data/beta?industry=${encodeURIComponent(industry)}&valuationDate=${encodeURIComponent(input.profile.valuationDate)}`);
       const payload = await response.json() as DamodaranBetaSuggestion;
@@ -1173,12 +1220,14 @@ export default function Home() {
         value: null,
         unleveredBeta: null,
         cashAdjustedBeta: null,
+        totalUnleveredBeta: null,
+        costOfCapitalLocal: null,
         appIndustry: industry,
         damodaranIndustry: null,
-        source: "Damodaran Industry Betas",
-        sourceUrl: "https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/Betas.html",
+        source: "Damodaran Europe Dataset",
+        sourceUrl: "https://pages.stern.nyu.edu/~adamodar/pc/datasets/betaEurope.xls",
         dataCurrentUrl: "https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datacurrent.html",
-        sourceDate: "2026-01-09",
+        sourceDate: "2026-01-05",
         fetchedAt: new Date().toISOString(),
         datasetAgeDays: 0,
         refreshStatus: "manual_seed",
@@ -1189,6 +1238,80 @@ export default function Home() {
       setBetaSource(fallback);
       setBetaStatus(fallback.message);
       return fallback;
+    }
+  }
+
+  async function fetchDamodaranEuropeBenchmark() {
+    setDamodaranEuropeStatus("Loading Damodaran Europe benchmark...");
+    try {
+      const response = await fetch(`/api/market-data/damodaran/europe?pkdCode=${encodeURIComponent(input.profile.pkdCode)}&industry=${encodeURIComponent(input.profile.industry)}&description=${encodeURIComponent(input.profile.companyName)}`);
+      const payload = await response.json() as DamodaranEuropeBenchmark;
+      if (!response.ok || payload.status !== "ready" || !payload.industry) {
+        throw new Error(payload.rationale || "Damodaran Europe benchmark is unavailable for this industry.");
+      }
+
+      setDamodaranEuropeBenchmark(payload);
+      setDamodaranEuropeStatus(`${payload.damodaranIndustry} loaded from Damodaran Europe ${payload.sourceDate}.`);
+      setInput((current) => ({
+        ...current,
+        wacc: betaManuallyEdited || payload.industry?.cashAdjustedUnleveredBeta === null || payload.industry?.cashAdjustedUnleveredBeta === undefined
+          ? current.wacc
+          : {
+              ...current.wacc,
+              beta: payload.industry.cashAdjustedUnleveredBeta,
+            },
+        marketMultiples: {
+          ...current.marketMultiples,
+          evEbitdaMultiple: payload.industry?.positiveEbitdaEvEbitda ?? current.marketMultiples.evEbitdaMultiple,
+          evRevenueMultiple: payload.industry?.evSales ?? current.marketMultiples.evRevenueMultiple,
+          source: {
+            ...current.marketMultiples.source,
+            kind: "damodaranSector",
+            label: `Damodaran Europe - ${payload.damodaranIndustry}`,
+            sourceUrl: payload.sourceUrl,
+            sourceDate: payload.sourceDate,
+            confidence: payload.confidence,
+            approvalStatus: "draft",
+            rationale: `${payload.rationale} Public-market Europe sector benchmark; review SME size, liquidity, control, and company-specific adjustments before approval.`,
+            damodaranIndustry: payload.damodaranIndustry ?? undefined,
+            region: payload.region,
+            dataset: payload.source,
+            sourceFile: payload.sourceUrl,
+            sourceUpdatedAt: payload.sourceDate,
+          },
+        },
+      }));
+
+      if (!betaManuallyEdited && payload.industry.cashAdjustedUnleveredBeta !== null && payload.industry.cashAdjustedUnleveredBeta !== undefined) {
+        applyBetaSuggestion({
+          status: "ready",
+          message: "Damodaran Europe beta benchmark loaded from local 2026 snapshot.",
+          value: payload.industry.cashAdjustedUnleveredBeta,
+          unleveredBeta: payload.industry.unleveredBeta ?? null,
+          cashAdjustedBeta: payload.industry.cashAdjustedUnleveredBeta,
+          totalUnleveredBeta: payload.industry.totalUnleveredBeta ?? null,
+          costOfCapitalLocal: payload.industry.costOfCapitalLocal ?? null,
+          appIndustry: input.profile.industry,
+          damodaranIndustry: payload.damodaranIndustry,
+          source: payload.source,
+          sourceUrl: payload.sourceUrl,
+          dataCurrentUrl: payload.dataCurrentUrl,
+          sourceDate: payload.sourceDate,
+          fetchedAt: payload.fetchedAt,
+          datasetAgeDays: 0,
+          refreshStatus: payload.refreshStatus as DamodaranBetaSuggestion["refreshStatus"],
+          confidence: payload.confidence,
+          isLiveData: false,
+          isUserOverridden: false,
+        });
+      }
+
+      return payload;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Damodaran Europe benchmark fetch failed.";
+      setDamodaranEuropeBenchmark(null);
+      setDamodaranEuropeStatus(message);
+      return null;
     }
   }
 
@@ -1838,6 +1961,8 @@ export default function Home() {
       confidence: betaSource?.value !== null && betaSource?.value !== undefined ? betaSource.confidence : "low",
     },
   ];
+  const marketMultipleIntelligence = assessMarketMultipleIntelligence(input, peerBenchmarks);
+  const marketMultipleSource = input.marketMultiples.source;
   const dataReadinessItems: DataReadinessItem[] = [
     {
       label: "KRS registry",
@@ -2207,12 +2332,16 @@ export default function Home() {
                 </table>
               </div>
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                <p className="text-sm font-semibold text-slate-950">Market multiples — manual for now</p>
-                <p className="mt-1 text-xs text-slate-600">EV/EBITDA and EV/Revenue are still manual assumptions and are not refreshed from Damodaran yet.</p>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <p className="text-sm font-semibold text-slate-950">Market multiples source</p>
+                  <Badge className={marketMultipleSource.approvalStatus === "approved" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"}>{marketMultipleSource.approvalStatus}</Badge>
+                </div>
+                <p className="mt-1 text-xs leading-5 text-slate-600">{marketMultipleSource.label}</p>
                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
                   <OutputRow label="EV / EBITDA" value={multiple(input.marketMultiples.evEbitdaMultiple)} />
                   <OutputRow label="EV / Revenue" value={multiple(input.marketMultiples.evRevenueMultiple)} />
                 </div>
+                <p className="mt-3 text-xs leading-5 text-slate-600">{marketMultipleIntelligence.aiAnalystRole}</p>
               </div>
               <div className="rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm text-teal-900">Source summary is synced automatically when the model starts. Edit WACC assumptions directly if you want to override sourced inputs.</div>
               {marketData?.notes.length ? <p className="text-xs text-slate-500">{marketData.notes.join(" ")}</p> : null}
@@ -2374,6 +2503,8 @@ export default function Home() {
                     <span className="break-words"><strong>Damodaran industry:</strong> {betaSource.damodaranIndustry ?? "Unavailable"}</span>
                     <span className="break-words"><strong>Unlevered beta:</strong> {betaSource.unleveredBeta !== null ? betaSource.unleveredBeta.toFixed(2) : "Unavailable"}</span>
                     <span className="break-words"><strong>Cash-adjusted beta:</strong> {betaSource.cashAdjustedBeta !== null ? betaSource.cashAdjustedBeta.toFixed(2) : "Unavailable"}</span>
+                    <span className="break-words"><strong>Total beta:</strong> {betaSource.totalUnleveredBeta !== null && betaSource.totalUnleveredBeta !== undefined ? betaSource.totalUnleveredBeta.toFixed(2) : "Unavailable"}</span>
+                    <span className="break-words"><strong>Sector WACC:</strong> {betaSource.costOfCapitalLocal !== null && betaSource.costOfCapitalLocal !== undefined ? pct(betaSource.costOfCapitalLocal) : "Unavailable"}</span>
                     <span className="break-words"><strong>Source:</strong> {betaSource.source}</span>
                     <span className="break-words"><strong>Source date:</strong> {betaSource.sourceDate}</span>
                     <span className="break-words"><strong>Dataset age:</strong> {betaSource.datasetAgeDays} days</span>
@@ -2604,18 +2735,123 @@ export default function Home() {
           </div>
         </div>
 
-        <WorkflowHeader id="market-approach" eyebrow="Workflow 7" title="Market Approach" description="Use manually entered benchmark EV/EBITDA and EV/Revenue multiples to triangulate DCF indications." status={workflowSections[6].status} />
+        <WorkflowHeader id="market-approach" eyebrow="Workflow 7" title="AI-assisted Market Multiples" description="Use source-traced EV/EBITDA and EV/Revenue multiples. BizRaport validates peer fit; approved market evidence drives the valuation." status={workflowSections[6].status} />
         <Card>
           <CardHeader>
             <CardTitle>Market Approach</CardTitle>
-            <CardDescription>Manual benchmark multiples converted to market enterprise value, market equity value, and blended DCF / market valuation.</CardDescription>
+            <CardDescription>Selected multiples convert normalized EBITDA and revenue into market enterprise value, then reconcile against DCF.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="grid gap-4 md:grid-cols-4">
-              <NumberField label="Benchmark EV / EBITDA" value={input.marketMultiples.evEbitdaMultiple} onChange={(value) => update(["marketMultiples", "evEbitdaMultiple"], value)} />
-              <NumberField label="Benchmark EV / Revenue" value={input.marketMultiples.evRevenueMultiple} onChange={(value) => update(["marketMultiples", "evRevenueMultiple"], value)} />
+              <NumberField label="Benchmark EV / EBITDA" value={input.marketMultiples.evEbitdaMultiple} onChange={(value) => updateMarketMultipleValue("evEbitdaMultiple", value)} />
+              <NumberField label="Benchmark EV / Revenue" value={input.marketMultiples.evRevenueMultiple} onChange={(value) => updateMarketMultipleValue("evRevenueMultiple", value)} />
               <NumberField label="EV / EBITDA weighting" value={input.marketMultiples.ebitdaWeight} percent onChange={(value) => update(["marketMultiples", "ebitdaWeight"], value)} />
               <NumberField label="DCF blend weighting" value={input.marketMultiples.dcfWeight} percent onChange={(value) => update(["marketMultiples", "dcfWeight"], value)} />
+            </div>
+
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <p className="text-sm font-bold text-blue-950">Damodaran Europe benchmark</p>
+                  <p className="mt-1 text-sm leading-6 text-blue-900">Use the 2026 Europe sector dataset for beta, WACC context, EV/EBITDA and EV/Sales. Values remain draft until approved.</p>
+                  {damodaranEuropeStatus ? <p className="mt-2 text-xs font-semibold text-blue-800">{damodaranEuropeStatus}</p> : null}
+                </div>
+                <button className="rounded-md bg-blue-900 px-4 py-2 text-sm font-bold text-white transition hover:bg-blue-800" onClick={fetchDamodaranEuropeBenchmark}>Use Damodaran Europe benchmark</button>
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
+                <div className="rounded-md border border-blue-100 bg-white p-3">
+                  <p className="text-[0.68rem] font-bold uppercase tracking-[0.1em] text-slate-500">Industry</p>
+                  <p className="mt-1 break-words text-sm font-bold text-slate-950">{damodaranEuropeBenchmark?.damodaranIndustry ?? marketMultipleSource.damodaranIndustry ?? "Not loaded"}</p>
+                </div>
+                <div className="rounded-md border border-blue-100 bg-white p-3">
+                  <p className="text-[0.68rem] font-bold uppercase tracking-[0.1em] text-slate-500">Region</p>
+                  <p className="mt-1 text-sm font-bold text-slate-950">{damodaranEuropeBenchmark?.region ?? marketMultipleSource.region ?? "Europe"}</p>
+                </div>
+                <div className="rounded-md border border-blue-100 bg-white p-3">
+                  <p className="text-[0.68rem] font-bold uppercase tracking-[0.1em] text-slate-500">Beta</p>
+                  <p className="mt-1 text-sm font-bold text-slate-950">{damodaranEuropeBenchmark?.industry?.cashAdjustedUnleveredBeta ? damodaranEuropeBenchmark.industry.cashAdjustedUnleveredBeta.toFixed(2) : betaSource?.cashAdjustedBeta ? betaSource.cashAdjustedBeta.toFixed(2) : "N/M"}</p>
+                </div>
+                <div className="rounded-md border border-blue-100 bg-white p-3">
+                  <p className="text-[0.68rem] font-bold uppercase tracking-[0.1em] text-slate-500">Total beta</p>
+                  <p className="mt-1 text-sm font-bold text-slate-950">{damodaranEuropeBenchmark?.industry?.totalUnleveredBeta ? damodaranEuropeBenchmark.industry.totalUnleveredBeta.toFixed(2) : betaSource?.totalUnleveredBeta ? betaSource.totalUnleveredBeta.toFixed(2) : "N/M"}</p>
+                </div>
+                <div className="rounded-md border border-blue-100 bg-white p-3">
+                  <p className="text-[0.68rem] font-bold uppercase tracking-[0.1em] text-slate-500">WACC</p>
+                  <p className="mt-1 text-sm font-bold text-slate-950">{damodaranEuropeBenchmark?.industry?.costOfCapitalLocal ? pct(damodaranEuropeBenchmark.industry.costOfCapitalLocal) : betaSource?.costOfCapitalLocal ? pct(betaSource.costOfCapitalLocal) : "N/M"}</p>
+                </div>
+                <div className="rounded-md border border-blue-100 bg-white p-3">
+                  <p className="text-[0.68rem] font-bold uppercase tracking-[0.1em] text-slate-500">EV / EBITDA</p>
+                  <p className="mt-1 text-sm font-bold text-slate-950">{damodaranEuropeBenchmark?.industry?.positiveEbitdaEvEbitda ? multiple(damodaranEuropeBenchmark.industry.positiveEbitdaEvEbitda) : multiple(input.marketMultiples.evEbitdaMultiple)}</p>
+                </div>
+                <div className="rounded-md border border-blue-100 bg-white p-3">
+                  <p className="text-[0.68rem] font-bold uppercase tracking-[0.1em] text-slate-500">EV / Sales</p>
+                  <p className="mt-1 text-sm font-bold text-slate-950">{damodaranEuropeBenchmark?.industry?.evSales ? multiple(damodaranEuropeBenchmark.industry.evSales) : multiple(input.marketMultiples.evRevenueMultiple)}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(280px,0.9fr)]">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="text-sm font-bold text-slate-950">{marketMultipleIntelligence.title}</p>
+                    <p className="mt-1 text-sm leading-6 text-slate-600">{marketMultipleIntelligence.summary}</p>
+                  </div>
+                  <Badge className={marketMultipleIntelligence.posture === "approved" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : marketMultipleIntelligence.posture === "draft" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-red-200 bg-red-50 text-red-800"}>{marketMultipleIntelligence.posture}</Badge>
+                </div>
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label>Source type</Label>
+                    <select className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 shadow-sm focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-100" value={marketMultipleSource.kind} onChange={(event) => updateMarketMultipleSource("kind", event.target.value as MarketMultipleSourceKind)}>
+                      {marketMultipleSourceKindOptions.map((kind) => <option key={kind} value={kind}>{marketMultipleSourceKindLabel(kind)}</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Source date</Label>
+                    <Input value={marketMultipleSource.sourceDate} onChange={(event) => updateMarketMultipleSource("sourceDate", event.target.value)} />
+                  </div>
+                  <div className="space-y-1.5 md:col-span-2">
+                    <Label>Source confidence</Label>
+                    <select className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 shadow-sm focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-100" value={marketMultipleSource.confidence} onChange={(event) => updateMarketMultipleSource("confidence", event.target.value as MarketMultipleSource["confidence"])}>
+                      <option value="low">Low - placeholder or weak support</option>
+                      <option value="medium">Medium - analyst-reviewed source</option>
+                      <option value="high">High - refreshed public or licensed source</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1.5 md:col-span-2">
+                    <Label>Source label</Label>
+                    <Input value={marketMultipleSource.label} onChange={(event) => updateMarketMultipleSource("label", event.target.value)} />
+                  </div>
+                  <div className="space-y-1.5 md:col-span-2">
+                    <Label>Source URL or note</Label>
+                    <Input value={marketMultipleSource.sourceUrl ?? ""} onChange={(event) => updateMarketMultipleSource("sourceUrl", event.target.value)} />
+                  </div>
+                  <div className="space-y-1.5 md:col-span-2">
+                    <Label>Rationale</Label>
+                    <textarea className="min-h-24 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 shadow-sm focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-100" value={marketMultipleSource.rationale} onChange={(event) => updateMarketMultipleSource("rationale", event.target.value)} />
+                  </div>
+                </div>
+                <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex flex-wrap gap-2">
+                    <Badge className={marketMultipleSource.confidence === "low" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-blue-200 bg-blue-50 text-blue-800"}>confidence {marketMultipleSource.confidence}</Badge>
+                    <Badge className={marketMultipleSource.approvalStatus === "approved" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"}>{marketMultipleSource.approvalStatus}</Badge>
+                  </div>
+                  <button className="rounded-md bg-slate-950 px-4 py-2 text-sm font-bold text-white transition hover:bg-teal-800" onClick={approveMarketMultiples}>Approve selected multiples</button>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-teal-200 bg-teal-50 p-4">
+                <p className="text-sm font-bold text-teal-950">How to use AI here</p>
+                <p className="mt-2 text-sm leading-6 text-teal-900">{marketMultipleIntelligence.aiAnalystRole}</p>
+                <div className="mt-4 space-y-2">
+                  {marketMultipleIntelligence.suggestedNextActions.map((action) => (
+                    <div key={action} className="flex gap-2 rounded-md border border-teal-100 bg-white/70 p-3 text-xs leading-5 text-slate-700">
+                      <CheckCircle2 size={15} className="mt-0.5 shrink-0 text-teal-700" />
+                      <span>{action}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
 
             <div className="grid gap-5 lg:grid-cols-3">

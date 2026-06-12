@@ -3,6 +3,7 @@ import { calculateComparableCompanies } from "./comparable-companies";
 import { calculateDcf } from "./dcf";
 import { forecastFinancials } from "./forecast";
 import { getIndustryModelProfile, type IndustryModelProfile } from "./industry-model-profiles";
+import { assessMarketMultipleIntelligence, marketMultipleSourceKindLabel } from "./market-multiple-intelligence";
 import { calculateMarketValuation } from "./multiples";
 import type { PeerBenchmarkResult } from "./peer-benchmarks";
 import { calculateScenarioAnalysis } from "./scenarios";
@@ -164,6 +165,17 @@ function manualSource(label: string, note = "Manual or model assumption"): Engin
   return { label, source: "Manual/model input", sourceDate: "Current model", confidence: "low", note };
 }
 
+function marketMultipleSource(input: ValuationInput): EngineSource {
+  const source = input.marketMultiples.source;
+  return {
+    label: source.label,
+    source: marketMultipleSourceKindLabel(source.kind),
+    sourceDate: source.sourceDate,
+    confidence: source.approvalStatus === "approved" ? source.confidence : "low",
+    note: `${source.approvalStatus === "approved" ? "Approved" : "Draft"} market multiple support. ${source.rationale}${source.damodaranIndustry ? ` Damodaran industry: ${source.damodaranIndustry}.` : ""}${source.region ? ` Region: ${source.region}.` : ""}${source.sourceUrl ? ` Source URL: ${source.sourceUrl}` : ""}`,
+  };
+}
+
 function calculatedSource(label: string, note: string): EngineSource {
   return { label, source: "Valuation engine", sourceDate: "Current calculation", confidence: "medium", note };
 }
@@ -259,10 +271,12 @@ function buildMarketMultiplesEngine(input: ValuationInput, weight: number, dcfEn
   const result = calculateMarketValuation(input.historicals, input.normalizationAdjustments, input.bridge, input.marketMultiples, dcfEnterpriseValue, dcfEquityValue);
   const diagnostics: ValuationEngineDiagnostic[] = result.diagnostics.map((item) => ({ severity: item.severity, message: item.message }));
   if (result.normalizedEbitda <= 0 && result.latestRevenue <= 0) diagnostics.push({ severity: "critical", message: "Revenue and normalized EBITDA are unavailable for market multiples." });
+  if (input.marketMultiples.source.approvalStatus !== "approved") diagnostics.push({ severity: "warning", message: "Market multiples are draft and need analyst approval before decision use." });
 
   const evRange = range(result.weightedMarketEnterpriseValue * 0.85, result.weightedMarketEnterpriseValue, result.weightedMarketEnterpriseValue * 1.15);
   const equityRange = applyPrivateDiscountRange(input, range(result.marketEquityBridge.equityValue * 0.85, result.marketEquityBridge.equityValue, result.marketEquityBridge.equityValue * 1.15));
-  const inputSources = [manualSource("EV/EBITDA multiple"), manualSource("EV/Revenue multiple"), manualSource("EBITDA/revenue weighting")];
+  const source = marketMultipleSource(input);
+  const inputSources = [source, manualSource("EBITDA/revenue weighting")];
 
   return {
     id: "marketMultiples",
@@ -271,18 +285,23 @@ function buildMarketMultiplesEngine(input: ValuationInput, weight: number, dcfEn
     status: diagnostics.some((item) => item.severity === "critical") ? "missing-data" : diagnostics.length ? "review" : "ready",
     weight,
     normalizedWeight: 0,
-    confidenceScore: confidenceFromDiagnostics(62, diagnostics, inputSources.length),
+    confidenceScore: confidenceFromDiagnostics(input.marketMultiples.source.approvalStatus === "approved" ? 68 : 48, diagnostics, inputSources.length),
     enterpriseValue: evRange,
     equityValue: equityRange,
     pointEstimate: equityRange.base,
     diagnostics,
     inputSources,
-    calculationSources: [calculatedSource("Manual multiple valuation", "Current EV/EBITDA and EV/Revenue market approach wrapped as an engine.")],
+    calculationSources: [calculatedSource("Market multiple valuation", "Selected EV/EBITDA and EV/Revenue inputs are applied to normalized EBITDA and latest revenue, then bridged from EV to equity.")],
     manualOverrides: inputSources,
-    missingSources: diagnostics.some((item) => item.severity === "critical") ? ["Positive revenue or EBITDA"] : [],
+    missingSources: [
+      ...(diagnostics.some((item) => item.severity === "critical") ? ["Positive revenue or EBITDA"] : []),
+      ...(input.marketMultiples.source.approvalStatus !== "approved" ? ["Approved market multiple source"] : []),
+    ],
     details: {
       evEbitdaMultiple: result.selectedEvEbitdaMultiple,
       evRevenueMultiple: result.selectedEvRevenueMultiple,
+      sourceKind: marketMultipleSourceKindLabel(input.marketMultiples.source.kind),
+      approvalStatus: input.marketMultiples.source.approvalStatus,
       weightedMarketEnterpriseValue: result.weightedMarketEnterpriseValue,
     },
   };
@@ -314,11 +333,12 @@ function buildCompsEngine(input: ValuationInput, weight: number, peerBenchmarks:
     : null;
   const multipleSource = {
     label: result.multiplesSource.label,
-    source: result.multiplesSource.kind,
-    sourceDate: "Current model",
+    source: marketMultipleSourceKindLabel(result.multiplesSource.kind),
+    sourceDate: result.multiplesSource.sourceDate,
     confidence: result.multiplesSource.confidence,
-    note: result.multiplesSource.note,
+    note: `${result.multiplesSource.approvalStatus === "approved" ? "Approved" : "Draft"} selected multiple support. ${result.multiplesSource.note}${result.multiplesSource.sourceUrl ? ` Source URL: ${result.multiplesSource.sourceUrl}` : ""}`,
   };
+  const marketIntelligence = assessMarketMultipleIntelligence(input, peerBenchmarks);
 
   return {
     id: "comparableCompanies",
@@ -334,7 +354,7 @@ function buildCompsEngine(input: ValuationInput, weight: number, peerBenchmarks:
     diagnostics,
     inputSources: compactSources([peerSource, multipleSource, manualSource("PKD industry context")]),
     calculationSources: [
-      calculatedSource("Comparable Companies engine", "BizRaport supports peer screening and operating diagnostics; manual/public market multiples drive valuation."),
+      calculatedSource("Comparable Companies engine", "BizRaport supports peer screening and operating diagnostics; source-traced market multiples drive valuation."),
       calculatedSource("EV-to-equity bridge", "Bridge applied consistently after implied enterprise value."),
     ],
     manualOverrides: [
@@ -349,6 +369,8 @@ function buildCompsEngine(input: ValuationInput, weight: number, peerBenchmarks:
       outlierRate: peerSet?.quality.outlierRate ?? null,
       evEbitdaMultiple: result.multiplesSource.evEbitdaMultiple,
       evRevenueMultiple: result.multiplesSource.evRevenueMultiple,
+      multipleApprovalStatus: result.multiplesSource.approvalStatus,
+      marketIntelligencePosture: marketIntelligence.posture,
       impliedEvFromEbitda: result.impliedEnterpriseValue.ebitda,
       impliedEvFromRevenue: result.impliedEnterpriseValue.revenue,
       impliedWeightedEnterpriseValue: result.impliedEnterpriseValue.weighted,

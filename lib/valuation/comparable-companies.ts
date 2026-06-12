@@ -39,7 +39,7 @@ export type PeerSet = {
   notes: string[];
 };
 
-export type MultiplesSourceKind = "manual" | "publicMarket" | "futureProvider";
+export type MultiplesSourceKind = MarketMultiplesAssumptions["source"]["kind"];
 
 export type ComparableCompaniesMultiplesSource = {
   kind: MultiplesSourceKind;
@@ -47,6 +47,9 @@ export type ComparableCompaniesMultiplesSource = {
   evEbitdaMultiple: number | null;
   evRevenueMultiple: number | null;
   confidence: "high" | "medium" | "low";
+  approvalStatus: MarketMultiplesAssumptions["source"]["approvalStatus"];
+  sourceDate: string;
+  sourceUrl?: string;
   note: string;
 };
 
@@ -58,6 +61,7 @@ export type ComparableCompaniesDiagnosticCode =
   | "REVENUE_SCALE_MISMATCH"
   | "MARGIN_DISPERSION_TOO_WIDE"
   | "MISSING_VALID_MULTIPLES"
+  | "MULTIPLES_NOT_APPROVED"
   | "BIZRAPORT_NOT_MULTIPLE_SOURCE"
   | "EV_BRIDGE_INCOMPLETE";
 
@@ -224,14 +228,19 @@ export function buildPeerSetFromBenchmark(input: ValuationInput, benchmark: Peer
 export function buildManualMultiplesSource(marketMultiples: MarketMultiplesAssumptions): ComparableCompaniesMultiplesSource {
   const hasEbitda = finite(marketMultiples.evEbitdaMultiple) && marketMultiples.evEbitdaMultiple > 0;
   const hasRevenue = finite(marketMultiples.evRevenueMultiple) && marketMultiples.evRevenueMultiple > 0;
+  const source = marketMultiples.source;
+  const confidence = source.approvalStatus === "approved" ? source.confidence : "low";
 
   return {
-    kind: "manual",
-    label: "Manual/public-market selected multiples",
+    kind: source.kind,
+    label: source.label,
     evEbitdaMultiple: hasEbitda ? marketMultiples.evEbitdaMultiple : null,
     evRevenueMultiple: hasRevenue ? marketMultiples.evRevenueMultiple : null,
-    confidence: hasEbitda || hasRevenue ? "low" : "low",
-    note: "Use GPW/NewConnect/public market evidence or analyst-reviewed manual inputs. BizRaport peer data is not treated as a direct market multiple source.",
+    confidence,
+    approvalStatus: source.approvalStatus,
+    sourceDate: source.sourceDate,
+    sourceUrl: source.sourceUrl,
+    note: source.rationale,
   };
 }
 
@@ -278,6 +287,11 @@ export function calculateComparableCompanies(input: ValuationInput, benchmark: P
     missingSources.push("Manual/public EV multiple evidence");
   }
 
+  if (multiplesSource.approvalStatus !== "approved") {
+    diagnostics.push({ code: "MULTIPLES_NOT_APPROVED", severity: "warning", message: "Selected market multiples are still draft and need analyst approval before the market approach is decision-grade." });
+    missingSources.push("Approved market multiple source");
+  }
+
   diagnostics.push({ code: "BIZRAPORT_NOT_MULTIPLE_SOURCE", severity: "info", message: "BizRaport peer data supports peer selection and benchmark diagnostics, not direct valuation multiples." });
 
   if (input.importMetadata?.bridge?.cashUnavailable || input.importMetadata?.bridge?.debtUnavailable) {
@@ -288,7 +302,7 @@ export function calculateComparableCompanies(input: ValuationInput, benchmark: P
   const warning = diagnostics.some((diagnostic) => diagnostic.severity === "warning");
   const peerQuality = peerSet?.quality.score ?? 0;
   const baseConfidence = peerSet ? 25 + peerQuality * 0.45 : 10;
-  const multiplesConfidence = finite(weightedEv) ? 15 : 0;
+  const multiplesConfidence = finite(weightedEv) ? (multiplesSource.approvalStatus === "approved" ? 22 : 8) : 0;
   const confidenceScore = Math.round(clamp(baseConfidence + multiplesConfidence - diagnostics.filter((item) => item.severity === "warning").length * 5, 10, 80));
   const dispersion = peerSet ? clamp(0.35 - peerSet.quality.score / 250, 0.12, 0.35) : 0.35;
   const base = weightedEv ?? Number.NaN;

@@ -407,6 +407,16 @@ export function calculateValuationDiagnostics(input: ValuationInput): Diagnostic
     });
   }
 
+  if (input.marketMultiples.source.approvalStatus !== "approved") {
+    diagnostics.push({
+      code: "MARKET_MULTIPLES_NOT_APPROVED",
+      severity: "warning",
+      area: "Market Approach",
+      message: "Market multiples are still draft and do not have analyst approval.",
+      suggestedAction: "Attach GPW/NewConnect, Damodaran, licensed provider, or analyst-reviewed evidence and mark the selected multiples as approved before decision use.",
+    });
+  }
+
   if (input.marketMultiples.evEbitdaMultiple > 12 || input.marketMultiples.evRevenueMultiple > 4) {
     diagnostics.push({
       code: "MARKET_MULTIPLE_ABOVE_SME_SCREENING_RANGE",

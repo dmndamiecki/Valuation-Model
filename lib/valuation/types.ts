@@ -92,11 +92,40 @@ export const discountAssumptionsSchema = z.object({
   customerConcentrationDiscount: ratioSchema,
 });
 
+export const marketMultipleSourceSchema = z.object({
+  kind: z.enum(["manual", "publicComparable", "damodaranSector", "licensedProvider", "aiSuggested"]),
+  label: z.string().min(1),
+  sourceUrl: z.string().optional(),
+  sourceDate: z.string().min(1),
+  confidence: dataConfidenceSchema,
+  approvalStatus: z.enum(["draft", "approved"]),
+  rationale: z.string().min(1),
+  damodaranIndustry: z.string().optional(),
+  region: z.string().optional(),
+  dataset: z.string().optional(),
+  sourceFile: z.string().optional(),
+  sourceUpdatedAt: z.string().optional(),
+});
+
 export const marketMultiplesAssumptionsSchema = z.object({
   evEbitdaMultiple: z.number().positive(),
   evRevenueMultiple: z.number().positive(),
   ebitdaWeight: ratioSchema,
   dcfWeight: ratioSchema,
+  source: marketMultipleSourceSchema.default({
+    kind: "manual",
+    label: "Legacy manual market multiples",
+    sourceUrl: "",
+    sourceDate: "Current model",
+    confidence: "low",
+    approvalStatus: "draft",
+    rationale: "Legacy input did not include source metadata. Review and approve source support before relying on the market approach.",
+    damodaranIndustry: undefined,
+    region: undefined,
+    dataset: undefined,
+    sourceFile: undefined,
+    sourceUpdatedAt: undefined,
+  }),
 });
 
 export const valuationImportMetadataSchema = z.object({
@@ -152,6 +181,7 @@ export type WaccAssumptions = z.infer<typeof waccAssumptionsSchema>;
 export type TerminalValueAssumptions = z.infer<typeof terminalValueAssumptionsSchema>;
 export type BridgeAssumptions = z.infer<typeof bridgeAssumptionsSchema>;
 export type DiscountAssumptions = z.infer<typeof discountAssumptionsSchema>;
+export type MarketMultipleSource = z.infer<typeof marketMultipleSourceSchema>;
 export type MarketMultiplesAssumptions = z.infer<typeof marketMultiplesAssumptionsSchema>;
 export type ImportedValueSource = z.infer<typeof importedValueSourceSchema>;
 export type ValuationImportMetadata = z.infer<typeof valuationImportMetadataSchema>;

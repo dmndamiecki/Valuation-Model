@@ -186,6 +186,17 @@ export function buildValuationInputFromSimpleMode(
       evRevenueMultiple: 1,
       ebitdaWeight: 0.7,
       dcfWeight: 0.7,
+      source: {
+        kind: "manual",
+        label: "Manual analyst-selected SME screening multiples",
+        sourceUrl: "",
+        sourceDate: "Current model",
+        confidence: "low",
+        approvalStatus: "draft",
+        rationale: "Initial placeholder multiples from simple mode. Replace with GPW/NewConnect comparables, Damodaran sector evidence, a licensed data provider, or an analyst-approved source before relying on the market approach.",
+        region: "Europe",
+        dataset: "Manual placeholder",
+      },
     },
   };
 }

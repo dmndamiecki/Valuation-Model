@@ -1,7 +1,7 @@
-import betaSeed from "@/data/market/damodaran-beta-seed.json";
 import type { DataConfidence } from "./types";
+import { getDamodaranEuropeBenchmark } from "./damodaran-europe";
 
-export type DamodaranBetaRefreshStatus = "manual_seed";
+export type DamodaranBetaRefreshStatus = "manual_seed" | "downloaded_snapshot";
 
 export type DamodaranBetaSuggestion = {
   status: "ready" | "fallback";
@@ -9,6 +9,8 @@ export type DamodaranBetaSuggestion = {
   value: number | null;
   unleveredBeta: number | null;
   cashAdjustedBeta: number | null;
+  totalUnleveredBeta?: number | null;
+  costOfCapitalLocal?: number | null;
   appIndustry: string;
   damodaranIndustry: string | null;
   source: string;
@@ -23,30 +25,7 @@ export type DamodaranBetaSuggestion = {
   isUserOverridden: false;
   warning?: string;
 };
-
-type BetaSeedIndustry = {
-  damodaranIndustry: string;
-  unleveredBeta: number;
-  cashAdjustedBeta: number;
-  confidence: DataConfidence;
-};
-
-type BetaSeed = typeof betaSeed & {
-  industries: Record<string, BetaSeedIndustry>;
-};
-
-const seed = betaSeed as BetaSeed;
 const refreshAgeWarningDays = 180;
-
-function normalizeIndustry(industry: string) {
-  return industry.trim().toLowerCase();
-}
-
-function findIndustrySeed(industry: string): [string, BetaSeedIndustry] | null {
-  const normalized = normalizeIndustry(industry);
-  const entry = Object.entries(seed.industries).find(([industryName]) => normalizeIndustry(industryName) === normalized) as [string, BetaSeedIndustry] | undefined;
-  return entry ?? null;
-}
 
 export function calculateDatasetAgeDays(sourceDate: string, valuationDateOrToday = new Date().toISOString()) {
   const source = new Date(`${sourceDate}T00:00:00.000Z`);
@@ -66,27 +45,28 @@ export function getDamodaranBetaRefreshWarning(sourceDate: string, valuationDate
 }
 
 export function getDamodaranBetaSuggestion(industry: string, valuationDateOrToday = new Date().toISOString()): DamodaranBetaSuggestion {
-  const datasetAgeDays = calculateDatasetAgeDays(seed.sourceDate, valuationDateOrToday);
-  const warning = getDamodaranBetaRefreshWarning(seed.sourceDate, valuationDateOrToday);
-  const fetchedAt = new Date().toISOString();
-  const industrySeed = findIndustrySeed(industry);
+  const benchmark = getDamodaranEuropeBenchmark({ appIndustry: industry });
+  const datasetAgeDays = calculateDatasetAgeDays(benchmark.sourceDate, valuationDateOrToday);
+  const warning = getDamodaranBetaRefreshWarning(benchmark.sourceDate, valuationDateOrToday);
 
-  if (!industrySeed) {
+  if (!benchmark.industry) {
     return {
       status: "fallback",
-      message: `No Damodaran beta manual seed is mapped for ${industry || "selected industry"}.`,
+      message: `No Damodaran Europe beta benchmark is mapped for ${industry || "selected industry"}.`,
       value: null,
       unleveredBeta: null,
       cashAdjustedBeta: null,
+      totalUnleveredBeta: null,
+      costOfCapitalLocal: null,
       appIndustry: industry,
       damodaranIndustry: null,
-      source: seed.source,
-      sourceUrl: seed.sourceUrl,
-      dataCurrentUrl: seed.dataCurrentUrl,
-      sourceDate: seed.sourceDate,
-      fetchedAt,
+      source: benchmark.source,
+      sourceUrl: benchmark.sourceUrl,
+      dataCurrentUrl: benchmark.dataCurrentUrl,
+      sourceDate: benchmark.sourceDate,
+      fetchedAt: benchmark.fetchedAt,
       datasetAgeDays,
-      refreshStatus: seed.refreshStatus as DamodaranBetaRefreshStatus,
+      refreshStatus: benchmark.refreshStatus as DamodaranBetaRefreshStatus,
       confidence: "medium",
       isLiveData: false,
       isUserOverridden: false,
@@ -94,23 +74,24 @@ export function getDamodaranBetaSuggestion(industry: string, valuationDateOrToda
     };
   }
 
-  const [appIndustry, data] = industrySeed;
   return {
     status: "ready",
-    message: "Damodaran beta manual seed loaded. Values are not live data.",
-    value: data.unleveredBeta,
-    unleveredBeta: data.unleveredBeta,
-    cashAdjustedBeta: data.cashAdjustedBeta,
-    appIndustry,
-    damodaranIndustry: data.damodaranIndustry,
-    source: seed.source,
-    sourceUrl: seed.sourceUrl,
-    dataCurrentUrl: seed.dataCurrentUrl,
-    sourceDate: seed.sourceDate,
-    fetchedAt,
+    message: "Damodaran Europe beta benchmark loaded from local 2026 snapshot.",
+    value: benchmark.industry.cashAdjustedUnleveredBeta ?? benchmark.industry.unleveredBeta ?? null,
+    unleveredBeta: benchmark.industry.unleveredBeta ?? null,
+    cashAdjustedBeta: benchmark.industry.cashAdjustedUnleveredBeta ?? null,
+    totalUnleveredBeta: benchmark.industry.totalUnleveredBeta ?? null,
+    costOfCapitalLocal: benchmark.industry.costOfCapitalLocal ?? null,
+    appIndustry: industry,
+    damodaranIndustry: benchmark.industry.industryName,
+    source: benchmark.source,
+    sourceUrl: benchmark.sourceUrl,
+    dataCurrentUrl: benchmark.dataCurrentUrl,
+    sourceDate: benchmark.sourceDate,
+    fetchedAt: benchmark.fetchedAt,
     datasetAgeDays,
-    refreshStatus: seed.refreshStatus as DamodaranBetaRefreshStatus,
-    confidence: data.confidence,
+    refreshStatus: benchmark.refreshStatus as DamodaranBetaRefreshStatus,
+    confidence: benchmark.confidence,
     isLiveData: false,
     isUserOverridden: false,
     warning,

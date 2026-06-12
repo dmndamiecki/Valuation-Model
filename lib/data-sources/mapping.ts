@@ -43,12 +43,12 @@ export const dataSources: DataSource[] = [
   },
   {
     id: "damodaran",
-    name: "Damodaran sector dataset",
+    name: "Damodaran Europe sector dataset",
     category: "market",
     sourceUrl: "https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datacurrent.html",
-    fetchStatus: "not_configured",
-    description: "Planned sector beta and multiple source. Current values are manual seeds pending automated import, not live market data.",
-    supportedFields: ["Beta", "EV/EBITDA", "EV/Revenue", "Equity risk premium"],
+    fetchStatus: "ready",
+    description: "Local 2026 Europe sector snapshot for beta, total beta, cost of capital, EV/EBITDA and EV/Sales. Values are benchmark data and still require analyst approval for private SME use.",
+    supportedFields: ["Beta", "Total beta", "Cost of capital", "EV/EBITDA", "EV/Sales", "Equity risk premium"],
   },
   {
     id: "fred",

@@ -179,7 +179,9 @@ function buildAssumptionsBook(input: ValuationInput, terminalValueBreakdown: Ter
     { section: "Bridge", assumption: "Cash", value: input.bridge.cash, source: "user_input", rationale: "Cash-like item added from EV to equity value." },
     { section: "Bridge", assumption: "Debt and debt-like items", value: input.bridge.debt + input.bridge.leasing + input.bridge.otherDebtLikeItems, source: "user_input", rationale: "Debt-like items deducted from enterprise value." },
     { section: "Discounts", assumption: "DLOM", value: safePercent(input.discounts.lackOfMarketability), source: "user_input", rationale: "Equity-level discount for lack of marketability." },
-    { section: "Market approach", assumption: "Benchmark EV/EBITDA", value: safeMultiple(input.marketMultiples.evEbitdaMultiple), source: "user_input", rationale: "Manual market cross-check multiple." },
+    { section: "Market approach", assumption: "Benchmark EV/EBITDA", value: safeMultiple(input.marketMultiples.evEbitdaMultiple), source: "user_input", rationale: input.marketMultiples.source.rationale },
+    { section: "Market approach", assumption: "Benchmark EV/Revenue", value: safeMultiple(input.marketMultiples.evRevenueMultiple), source: "user_input", rationale: `${input.marketMultiples.source.label}; approval status: ${input.marketMultiples.source.approvalStatus}; confidence: ${input.marketMultiples.source.confidence}.` },
+    { section: "Market approach", assumption: "Multiple source date", value: input.marketMultiples.source.sourceDate, source: "user_input", rationale: `Source type: ${input.marketMultiples.source.kind}; region: ${input.marketMultiples.source.region ?? "n/a"}; Damodaran industry: ${input.marketMultiples.source.damodaranIndustry ?? "n/a"}${input.marketMultiples.source.sourceUrl ? `; URL: ${input.marketMultiples.source.sourceUrl}` : ""}.` },
     { section: "Market approach", assumption: "DCF blend weighting", value: safePercent(input.marketMultiples.dcfWeight), source: "user_input", rationale: "Controls weighting between income approach and market approach indications." },
   ];
 }
