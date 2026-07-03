@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Activity, AlertCircle, AlertTriangle, ArrowRight, Building2, Calculator, CheckCircle2, Database, FileDown, Gauge, Layers3, LineChart as LineChartIcon, Search, ShieldCheck, SlidersHorizontal } from "lucide-react";
 import {
   Area,
@@ -149,12 +149,12 @@ function DataReadinessPanel({ items, score }: { items: DataReadinessItem[]; scor
 
 function WorkflowHeader({ id, eyebrow, title, description, status }: { id: string; eyebrow: string; title: string; description: string; status: WorkflowStatus }) {
   return (
-    <div id={id} className="scroll-mt-28 border-b border-slate-300 pb-4 pt-7">
+    <div id={id} className="scroll-mt-28 border-b border-slate-200 pb-4 pt-7">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-teal-700">{eyebrow}</p>
-          <h2 className="mt-1 text-2xl font-bold tracking-tight text-slate-950">{title}</h2>
-          <p className="mt-1 text-sm leading-6 text-slate-600">{description}</p>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-teal-700">{eyebrow}</p>
+          <h2 className="mt-1 text-xl font-bold tracking-tight text-slate-950 sm:text-2xl">{title}</h2>
+          <p className="mt-1 max-w-4xl text-sm leading-6 text-slate-600">{description}</p>
         </div>
         <StatusBadge status={status} />
       </div>
@@ -163,11 +163,10 @@ function WorkflowHeader({ id, eyebrow, title, description, status }: { id: strin
 }
 
 function WorkflowNav({ sections }: { sections: WorkflowSectionItem[] }) {
-  const displaySections = sections.filter((_section, index) => [0, 3, 5, 8, 9].includes(index));
   return (
-    <nav className="sticky top-3 z-20 rounded-lg border border-slate-300 bg-white/92 p-2 shadow-[0_18px_42px_rgba(15,23,42,0.10)] backdrop-blur">
+    <nav className="sticky top-3 z-20 rounded-lg border border-slate-300 bg-white/94 p-2 shadow-[0_18px_42px_rgba(15,23,42,0.10)] backdrop-blur">
       <div className="flex gap-2 overflow-x-auto pb-1">
-        {displaySections.map((section) => (
+        {sections.map((section) => (
           <a key={section.id} href={`#${section.id}`} className="flex min-w-max items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 transition hover:border-teal-500 hover:bg-white hover:text-teal-800">
             <span>{section.label}</span>
             <span className={`rounded-full px-2 py-0.5 ${statusClassName(section.status)}`}>{section.status}</span>
@@ -175,6 +174,47 @@ function WorkflowNav({ sections }: { sections: WorkflowSectionItem[] }) {
         ))}
       </div>
     </nav>
+  );
+}
+
+function StageScrollRail({
+  sections,
+  activeId,
+  progress,
+}: {
+  sections: WorkflowSectionItem[];
+  activeId: string;
+  progress: number;
+}) {
+  const activeSection = sections.find((section) => section.id === activeId) ?? sections[0];
+
+  return (
+    <aside aria-label="Current workbench stage" className="fixed right-4 top-1/2 z-30 hidden w-40 -translate-y-1/2 xl:block">
+      <div className="rounded-2xl border border-teal-100 bg-white/88 p-3 shadow-[0_24px_70px_rgba(15,23,42,0.14)] backdrop-blur">
+        <div className="mb-3 rounded-xl bg-gradient-to-br from-teal-50 to-emerald-50 p-3">
+          <p className="text-[0.62rem] font-bold uppercase tracking-[0.18em] text-teal-700">You are in</p>
+          <p className="mt-1 break-words text-sm font-bold leading-5 text-slate-950">{activeSection?.label ?? "Conclusion"}</p>
+        </div>
+        <div className="relative ml-2">
+          <div className="absolute bottom-2 left-[9px] top-2 w-1 rounded-full bg-slate-100" />
+          <div className="absolute left-[9px] top-2 w-1 rounded-full bg-gradient-to-b from-teal-500 via-emerald-400 to-blue-400 transition-all duration-300" style={{ height: `${Math.max(progress, 4)}%` }} />
+          <div className="space-y-2">
+            {sections.map((section) => {
+              const active = section.id === activeId;
+              return (
+                <a key={section.id} href={`#${section.id}`} className="group relative flex min-w-0 items-center gap-3 rounded-lg px-1 py-1.5">
+                  <span className={`relative z-10 h-5 w-5 shrink-0 rounded-full border-2 transition ${active ? "border-teal-700 bg-teal-600 shadow-[0_0_0_5px_rgba(20,184,166,0.15)]" : "border-white bg-slate-300 group-hover:bg-teal-300"}`} />
+                  <span className={`truncate text-xs font-bold transition ${active ? "text-teal-900" : "text-slate-500 group-hover:text-slate-800"}`}>{section.label}</span>
+                </a>
+              );
+            })}
+          </div>
+        </div>
+        <div className="mt-3 rounded-full bg-slate-100 p-1">
+          <div className="h-1.5 rounded-full bg-gradient-to-r from-teal-600 to-emerald-400 transition-all duration-300" style={{ width: `${progress}%` }} />
+        </div>
+      </div>
+    </aside>
   );
 }
 
@@ -223,7 +263,7 @@ function asNumber(value: string) {
 function SourceMeta({ dataPoint }: { dataPoint: DataPoint<number | string | null> }) {
   return (
     <span className="block break-words text-xs text-slate-500">
-      Source: {dataPoint.source} · URL: {dataPoint.sourceUrl} · Date: {dataPoint.sourceDate} · Confidence: {dataPoint.confidence} · {dataPoint.isUserOverridden ? "user overridden" : "not overridden"}
+      Source: {dataPoint.source} | Date: {dataPoint.sourceDate} | Confidence: {dataPoint.confidence}{dataPoint.isUserOverridden ? " | user override" : ""}
     </span>
   );
 }
@@ -420,6 +460,110 @@ function MetricCard({ label, value, helper }: { label: string; value: string; he
   );
 }
 
+type WorkbenchNextStepsProps = {
+  mode: ValuationMode;
+  sourceReadinessScore: number;
+  marketMultipleSource: MarketMultipleSource;
+  criticalCount: number;
+  warningCount: number;
+  benchmarkAssistantStatus: string;
+  peerBenchmarkStatus: string;
+  onOpenExtended: () => void;
+};
+
+function stepToneClassName(status: "ready" | "review" | "action") {
+  if (status === "ready") return "border-emerald-200 bg-emerald-50 text-emerald-800";
+  if (status === "review") return "border-amber-200 bg-amber-50 text-amber-800";
+  return "border-slate-200 bg-slate-50 text-slate-700";
+}
+
+function WorkbenchNextSteps({
+  mode,
+  sourceReadinessScore,
+  marketMultipleSource,
+  criticalCount,
+  warningCount,
+  benchmarkAssistantStatus,
+  peerBenchmarkStatus,
+  onOpenExtended,
+}: WorkbenchNextStepsProps) {
+  const sourceStatus = sourceReadinessScore >= 80 ? "ready" : sourceReadinessScore >= 50 ? "review" : "action";
+  const benchmarkStatus = marketMultipleSource.approvalStatus === "approved" ? "ready" : marketMultipleSource.kind === "manual" ? "action" : "review";
+  const diagnosticsStatus = criticalCount > 0 ? "action" : warningCount > 0 ? "review" : "ready";
+  const steps = [
+    {
+      number: "01",
+      title: "Evidence quality",
+      detail: sourceReadinessScore >= 80 ? "KRS, BizRaport and market inputs are connected enough for review." : "Confirm imported company data and market inputs before relying on the output.",
+      status: sourceStatus,
+      href: "#evidence-quality",
+    },
+    {
+      number: "02",
+      title: "Method evidence",
+      detail: marketMultipleSource.approvalStatus === "approved"
+        ? "Selected market evidence is approved."
+        : "Run the benchmark assistant, review sector and peer evidence, then approve selected multiples.",
+      status: benchmarkStatus,
+      href: "#methods",
+    },
+    {
+      number: "03",
+      title: "Assumption review",
+      detail: criticalCount > 0 ? "Critical diagnostics need attention before decision use." : warningCount > 0 ? "Warnings are active; review the relevant assumptions." : "No critical diagnostics are active.",
+      status: diagnosticsStatus,
+      href: "#assumptions",
+    },
+    {
+      number: "04",
+      title: "Export package",
+      detail: "Create the report only after source data, benchmark evidence and diagnostics are reviewed.",
+      status: diagnosticsStatus === "ready" && benchmarkStatus !== "action" ? "ready" : "review",
+      href: "#export",
+    },
+  ] as const;
+
+  return (
+    <Card className="border-slate-300 bg-white/95">
+      <CardHeader>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <CardTitle>Review path</CardTitle>
+            <CardDescription>One valuation model, one headline conclusion. These cards guide the review without creating a second result.</CardDescription>
+          </div>
+          {mode === "simple" ? (
+            <button className="inline-flex items-center justify-center rounded-md bg-slate-950 px-4 py-2 text-sm font-bold text-white transition hover:bg-teal-800" onClick={onOpenExtended}>
+              Open workbench
+            </button>
+          ) : (
+            <Badge className="border-slate-200 bg-slate-50 text-slate-700">Workbench open</Badge>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-3 lg:grid-cols-4">
+          {steps.map((step) => (
+            <a key={step.number} href={step.href} className="group block rounded-lg border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-4 transition hover:border-teal-500 hover:shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">{step.number}</span>
+                <Badge className={stepToneClassName(step.status)}>{step.status === "ready" ? "ready" : step.status === "review" ? "review" : "action"}</Badge>
+              </div>
+              <p className="mt-4 text-sm font-bold text-slate-950">{step.title}</p>
+              <p className="mt-2 text-xs leading-5 text-slate-600">{step.detail}</p>
+            </a>
+          ))}
+        </div>
+        {(benchmarkAssistantStatus || peerBenchmarkStatus) ? (
+          <div className="grid gap-3 text-xs leading-5 text-slate-600 md:grid-cols-2">
+            {benchmarkAssistantStatus ? <p className="rounded-md border border-teal-100 bg-teal-50 p-3"><strong className="text-teal-950">Benchmark assistant:</strong> {benchmarkAssistantStatus}</p> : null}
+            {peerBenchmarkStatus ? <p className="rounded-md border border-slate-200 bg-slate-50 p-3"><strong className="text-slate-950">Peer screen:</strong> {peerBenchmarkStatus}</p> : null}
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 function ValuationRangePanel({
   currency,
   low,
@@ -443,8 +587,8 @@ function ValuationRangePanel({
       <CardHeader>
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
-            <CardTitle>KRS-built valuation range</CardTitle>
-            <CardDescription>Bear, base, and upside adjusted equity values. The range re-renders as assumptions change.</CardDescription>
+            <CardTitle>Conclusion: valuation range</CardTitle>
+            <CardDescription>This is the one headline answer. Method detail, DCF math, source evidence and exports sit below in the workbench.</CardDescription>
           </div>
           <Badge className={confidenceScore >= 80 ? "border-emerald-200 bg-emerald-50 text-emerald-800" : confidenceScore >= 60 ? "border-amber-200 bg-amber-50 text-amber-800" : "border-red-200 bg-red-50 text-red-800"}>Confidence {confidenceScore}%</Badge>
         </div>
@@ -452,9 +596,9 @@ function ValuationRangePanel({
       <CardContent className="space-y-5">
         <div className="grid gap-3 lg:grid-cols-3">
           {[
-            ["Conservative", money(low, currency), "Bear adjusted equity"],
-            ["Base case", money(base, currency), "Current model output"],
-            ["Upside", money(high, currency), "Bull adjusted equity"],
+            ["Low indication", money(low, currency), "Lower end of active method range"],
+            ["Headline value", money(base, currency), "Weighted midpoint across active methods"],
+            ["High indication", money(high, currency), "Upper end of active method range"],
           ].map(([label, value, helper]) => (
             <div key={label} className="min-w-0 rounded-lg border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-4">
               <p className="text-[0.7rem] font-bold uppercase tracking-[0.12em] text-slate-500">{label}</p>
@@ -552,8 +696,8 @@ function EngineCockpit({
               <div className="flex items-center gap-2">
                 <span className="flex h-9 w-9 items-center justify-center rounded-md bg-slate-950 text-white"><Layers3 size={18} /></span>
                 <div>
-                  <CardTitle>Engine cockpit</CardTitle>
-                  <CardDescription>One blended range across active valuation engines. Each method keeps its own weight, confidence and source trail.</CardDescription>
+                  <CardTitle>Method Weighting</CardTitle>
+                  <CardDescription>Breakdown of the headline conclusion by method. This is supporting evidence, not a second valuation answer.</CardDescription>
                 </div>
               </div>
             </div>
@@ -567,9 +711,9 @@ function EngineCockpit({
             <div className="rounded-lg border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 p-5 text-white shadow-lg shadow-slate-900/10">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                  <p className="text-[0.7rem] font-bold uppercase tracking-[0.16em] text-teal-100">Blended equity value</p>
+                  <p className="text-[0.7rem] font-bold uppercase tracking-[0.16em] text-teal-100">Same headline value, by method</p>
                   <p className="mt-3 break-words text-3xl font-bold leading-tight sm:text-4xl">{money(cockpit.base, currency)}</p>
-                  <p className="mt-2 text-sm leading-6 text-slate-300">Weighted midpoint across active methods, with inactive or missing-data engines excluded from the blend.</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">The value shown in Conclusion, with inactive or missing-data engines excluded from the blend.</p>
                 </div>
                 <div className="grid grid-cols-3 gap-2 text-center text-xs">
                   <div className="rounded-md border border-white/10 bg-white/10 p-2">
@@ -857,11 +1001,13 @@ export default function Home() {
   const [betaManuallyEdited, setBetaManuallyEdited] = useState(false);
   const [damodaranEuropeBenchmark, setDamodaranEuropeBenchmark] = useState<DamodaranEuropeBenchmark | null>(null);
   const [damodaranEuropeStatus, setDamodaranEuropeStatus] = useState("");
-  const [selectedEngineId, setSelectedEngineId] = useState<ValuationEngineId | null>("dcf");
+  const [selectedEngineId, setSelectedEngineId] = useState<ValuationEngineId | null>(null);
   const [peerBenchmarks, setPeerBenchmarks] = useState<PeerBenchmarkResult | null>(null);
   const [peerBenchmarkStatus, setPeerBenchmarkStatus] = useState("");
   const [benchmarkAssistant, setBenchmarkAssistant] = useState<BenchmarkAssistantResult | null>(null);
   const [benchmarkAssistantStatus, setBenchmarkAssistantStatus] = useState("");
+  const [activeStageId, setActiveStageId] = useState("valuation-conclusion");
+  const [scrollProgress, setScrollProgress] = useState(0);
 
   const validation = useMemo(() => valuationInputSchema.safeParse(input), [input]);
   const model = useMemo(() => {
@@ -1925,18 +2071,8 @@ export default function Home() {
     }));
   }
 
-  function updateSimple<K extends keyof SimpleModeInput>(key: K, value: SimpleModeInput[K]) {
-    const next: SimpleModeInput = { ...simpleInput, [key]: value };
-    setSimpleInput(next);
-    setInput(buildValuationInputFromSimpleMode(next));
-  }
-
   function switchMode(nextMode: ValuationMode) {
-    if (nextMode === "simple") {
-      const nextSimpleInput = simpleInputFromValuationInput(input);
-      setSimpleInput(nextSimpleInput);
-      setInput(buildValuationInputFromSimpleMode(nextSimpleInput));
-    }
+    setSimpleInput(simpleInputFromValuationInput(input));
     setMode(nextMode);
   }
 
@@ -2039,7 +2175,6 @@ export default function Home() {
     { id: "diagnostics", label: "9. Diagnostics", status: model.diagnostics.criticalCount > 0 ? "missing inputs" : model.diagnostics.warningCount > 0 ? "warning" : "complete" },
     { id: "export", label: "10. Export", status: validation.success ? "complete" : "warning" },
   ];
-
   const marketDataSourceRows = [
     {
       input: "Risk-free rate",
@@ -2098,19 +2233,53 @@ export default function Home() {
   const connectedDataSources = dataReadinessItems.filter((item) => item.status === "connected").length;
   const partialDataSources = dataReadinessItems.filter((item) => item.status === "partial").length;
   const sourceReadinessScore = Math.min(100, Math.round(((connectedDataSources + partialDataSources * 0.5) / dataReadinessItems.length) * 100));
+  const assumptionsStatus: WorkflowStatus = workflowSections
+    .slice(0, 6)
+    .some((section) => section.status === "missing inputs")
+      ? "missing inputs"
+      : workflowSections.slice(0, 6).some((section) => section.status === "warning")
+        ? "warning"
+        : "complete";
+  const workbenchSections: WorkflowSectionItem[] = [
+    { id: "valuation-conclusion", label: "Conclusion", status: model.diagnostics.criticalCount > 0 ? "warning" : "complete" },
+    { id: "evidence-quality", label: "Evidence", status: sourceReadinessScore >= 80 ? "complete" : "warning" },
+    { id: "methods", label: "Methods", status: model.valuationReport.marketValuation.diagnostics.length > 0 ? "warning" : "complete" },
+    { id: "assumptions", label: "Assumptions", status: assumptionsStatus },
+    { id: "risk", label: "Risk", status: workflowSections[8].status },
+    { id: "export", label: "Export", status: workflowSections[9].status },
+  ];
   const diagnosticPenalty = model.diagnostics.criticalCount * 20 + model.diagnostics.warningCount * 5;
   const valuationConfidenceScore = Math.max(20, Math.min(95, sourceReadinessScore + (model.diagnostics.criticalCount === 0 ? 10 : 0) - diagnosticPenalty));
-  const valuationRangeLow = Math.min(model.valuationReport.valuationConclusion.bearAdjustedEquityValue, model.valuationReport.valuationConclusion.baseAdjustedEquityValue, model.valuationReport.valuationConclusion.bullAdjustedEquityValue);
-  const valuationRangeHigh = Math.max(model.valuationReport.valuationConclusion.bearAdjustedEquityValue, model.valuationReport.valuationConclusion.baseAdjustedEquityValue, model.valuationReport.valuationConclusion.bullAdjustedEquityValue);
-  const summaryDrivers = model.valuationReport.valuationConclusion.keyValuationDrivers.slice(0, 4);
-  const summaryWarnings = model.valuationReport.valuationConclusion.keyWarnings.length > 0
-    ? model.valuationReport.valuationConclusion.keyWarnings.slice(0, 4)
-    : ["No critical diagnostics are currently active. Review assumptions before sharing externally."];
   const decisionHeadline = model.diagnostics.criticalCount > 0
     ? "Use as a working draft until critical diagnostics are resolved."
     : valuationConfidenceScore >= 80
       ? "Ready for internal review, with assumptions still available for professional tuning."
       : "Good screening output, but source support and assumptions should be reviewed before relying on it.";
+
+  useEffect(() => {
+    const updateStageProgress = () => {
+      const scrollTop = window.scrollY;
+      const documentHeight = Math.max(document.documentElement.scrollHeight - window.innerHeight, 1);
+      setScrollProgress(Math.min(100, Math.max(0, (scrollTop / documentHeight) * 100)));
+
+      const activeSection = workbenchSections
+        .map((section) => ({ id: section.id, top: document.getElementById(section.id)?.getBoundingClientRect().top ?? Number.POSITIVE_INFINITY }))
+        .filter((section) => Number.isFinite(section.top))
+        .reduce((current, section) => (section.top <= 170 && section.top > current.top ? section : current), { id: workbenchSections[0]?.id ?? "valuation-conclusion", top: Number.NEGATIVE_INFINITY });
+
+      if (activeSection.id !== activeStageId) {
+        setActiveStageId(activeSection.id);
+      }
+    };
+
+    updateStageProgress();
+    window.addEventListener("scroll", updateStageProgress, { passive: true });
+    window.addEventListener("resize", updateStageProgress);
+    return () => {
+      window.removeEventListener("scroll", updateStageProgress);
+      window.removeEventListener("resize", updateStageProgress);
+    };
+  }, [activeStageId, workbenchSections]);
 
   if (!workspaceStarted) {
     return (
@@ -2200,12 +2369,12 @@ export default function Home() {
                   {importedDataSummary ? <><DataReadinessPanel items={dataReadinessItems} score={sourceReadinessScore} /><ImportedDataSummaryCard summary={importedDataSummary} /></> : null}
                   <div className="grid gap-4 md:grid-cols-2">
                     <button className={`rounded-lg border p-5 text-left transition ${wizardInput.valuationType === "simple" ? "border-teal-700 bg-teal-50" : "border-slate-200 bg-white hover:border-teal-500"}`} onClick={() => updateWizard("valuationType", "simple")}>
-                      <p className="text-lg font-bold text-slate-950">Owner summary</p>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">A simple decision view for business owners: value range, confidence, key risks, and what to do next.</p>
+                      <p className="text-lg font-bold text-slate-950">Conclusion view</p>
+                      <p className="mt-2 text-sm leading-6 text-slate-600">A clean decision view: valuation range, confidence, source readiness, key risks, and next steps.</p>
                     </button>
                     <button className={`rounded-lg border p-5 text-left transition ${wizardInput.valuationType === "professional" ? "border-slate-950 bg-slate-50" : "border-slate-200 bg-white hover:border-slate-500"}`} onClick={() => updateWizard("valuationType", "professional")}>
-                      <p className="text-lg font-bold text-slate-950">Extended model</p>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">Professional mode with historicals, normalization, forecast, WACC, DCF, market approach, scenarios, diagnostics, and exports.</p>
+                      <p className="text-lg font-bold text-slate-950">Workbench view</p>
+                      <p className="mt-2 text-sm leading-6 text-slate-600">The same valuation with editable assumptions, method detail, source trails, diagnostics, and exports.</p>
                     </button>
                   </div>
                   {wizardImportApplied && companyData?.years.length ? <Badge className="border-teal-200 bg-teal-50 text-teal-800">Model prefilled from KRS + BizRaport - Step 3 will be skipped</Badge> : <p className="text-sm text-slate-500">No imported financial years are available yet, so the wizard will ask for a manual financial starting point.</p>}
@@ -2247,7 +2416,7 @@ export default function Home() {
               <Badge className="border-teal-200 bg-teal-50 text-teal-800">Polish SME valuation workbench</Badge>
               <h1 className="mt-4 max-w-4xl break-words text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl lg:text-5xl">{input.profile.companyName}</h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-                KRS-built valuation workspace with live DCF, bridge, private company discounts, diagnostics, and export-ready outputs.
+                One headline valuation range with source quality, method evidence, editable assumptions, model checks, and export-ready outputs.
               </p>
             </div>
             <div className="grid gap-2 rounded-lg border border-slate-200 bg-white/80 p-4 text-sm text-slate-700 shadow-sm backdrop-blur sm:min-w-[320px]">
@@ -2259,7 +2428,50 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="grid gap-5">
+        <WorkflowNav sections={workbenchSections} />
+        {mode === "professional" ? <StageScrollRail sections={workbenchSections} activeId={activeStageId} progress={scrollProgress} /> : null}
+
+        <div id="valuation-conclusion" className="scroll-mt-28">
+          <ValuationRangePanel
+            currency={input.profile.currency}
+            low={model.engineCockpit.low}
+            base={model.engineCockpit.base}
+            high={model.engineCockpit.high}
+            confidenceScore={valuationConfidenceScore}
+            readinessHeadline={decisionHeadline}
+          />
+        </div>
+        <div id="evidence-quality" className="scroll-mt-28">
+          <DataReadinessPanel items={dataReadinessItems} score={sourceReadinessScore} />
+        </div>
+        <Card className="border-slate-300 bg-white/95">
+          <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">View mode</p>
+              <p className="mt-1 text-sm text-slate-600">Same valuation, different level of detail. Switching views does not recalculate the model.</p>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2" role="tablist" aria-label="Valuation view">
+              <button aria-pressed={mode === "simple"} className={`rounded-md border px-5 py-3 text-sm font-bold transition focus:outline-none focus:ring-2 focus:ring-teal-200 ${mode === "simple" ? "border-teal-700 bg-teal-700 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-teal-600"}`} onClick={() => switchMode("simple")}>Conclusion</button>
+              <button aria-pressed={mode === "professional"} className={`rounded-md border px-5 py-3 text-sm font-bold transition focus:outline-none focus:ring-2 focus:ring-slate-200 ${mode === "professional" ? "border-slate-950 bg-slate-950 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-slate-950"}`} onClick={() => switchMode("professional")}>Workbench</button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <WorkbenchNextSteps
+          mode={mode}
+          sourceReadinessScore={sourceReadinessScore}
+          marketMultipleSource={marketMultipleSource}
+          criticalCount={model.diagnostics.criticalCount}
+          warningCount={model.diagnostics.warningCount}
+          benchmarkAssistantStatus={benchmarkAssistantStatus}
+          peerBenchmarkStatus={peerBenchmarkStatus}
+          onOpenExtended={() => switchMode("professional")}
+        />
+
+        {mode === "simple" ? null : (
+          <>
+
+        <div id="methods" className="scroll-mt-28">
           <EngineCockpit
             cockpit={model.engineCockpit}
             currency={input.profile.currency}
@@ -2269,97 +2481,6 @@ export default function Home() {
             onFetchComparablePeers={fetchComparableCompanyPeers}
             peerBenchmarkStatus={peerBenchmarkStatus}
           />
-          <DataReadinessPanel items={dataReadinessItems} score={sourceReadinessScore} />
-        </div>
-        <Card className="border-slate-300 bg-white/95">
-          <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">View mode</p>
-              <p className="mt-1 text-sm text-slate-600">Use Owner summary for a simple business answer, or open Extended model when a professional needs to tune the assumptions.</p>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <button className={`rounded-md border px-5 py-3 text-sm font-bold transition ${mode === "simple" ? "border-teal-700 bg-teal-700 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-teal-600"}`} onClick={() => switchMode("simple")}>Owner summary</button>
-              <button className={`rounded-md border px-5 py-3 text-sm font-bold transition ${mode === "professional" ? "border-slate-950 bg-slate-950 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-slate-950"}`} onClick={() => switchMode("professional")}>Extended model</button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {mode === "simple" ? (
-          <section className="grid gap-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Owner summary inputs</CardTitle>
-                <CardDescription>Enter only the business facts needed for a plain-language valuation view. The professional assumptions stay available in Extended model.</CardDescription>
-              </CardHeader>
-              <CardContent className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-1.5"><Label>Company name</Label><Input value={simpleInput.companyName} onChange={(event) => updateSimple("companyName", event.target.value)} /></div>
-                <div className="space-y-1.5"><Label>Country</Label><Input value={simpleInput.country} onChange={(event) => updateSimple("country", event.target.value)} /></div>
-                <div className="space-y-1.5"><Label>Currency</Label><Input value={simpleInput.currency} onChange={(event) => updateSimple("currency", event.target.value)} /></div>
-                <div className="space-y-1.5"><Label>Industry</Label><Input value={simpleInput.industry} onChange={(event) => updateSimple("industry", event.target.value)} /></div>
-                <div className="space-y-1.5"><Label>Registration Number</Label><Input value={simpleInput.registrationNumber} onChange={(event) => updateSimple("registrationNumber", event.target.value)} /></div>
-                {importedDataSummary ? <div className="md:col-span-2"><ImportedDataSummaryCard summary={importedDataSummary} /></div> : null}
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 md:col-span-2">Company import now lives in the setup wizard. Use "Start new valuation" if you want to run a fresh KRS + BizRaport lookup.</div>
-                <div className="md:col-span-2"><PkdSuggestionPanel suggestion={activePkdSuggestion} /></div>
-                {forecastAutoSeeded ? <div className="md:col-span-2"><Badge className="border-teal-200 bg-teal-50 text-teal-800">Auto-generated from historical financials</Badge>{forecastSeedNotes.map((note) => <p key={note} className="mt-2 text-xs text-slate-500">{note}</p>)}</div> : null}
-                <NumberField label="Latest revenue" value={simpleInput.latestRevenue} onChange={(value) => updateSimple("latestRevenue", value)} />
-                <NumberField label="Latest EBITDA" value={simpleInput.latestEbitda} onChange={(value) => updateSimple("latestEbitda", value)} />
-                <NumberField label="Cash" value={simpleInput.cash} onChange={(value) => updateSimple("cash", value)} />
-                <NumberField label="Debt" value={simpleInput.debt} onChange={(value) => updateSimple("debt", value)} />
-                <NumberField label="Expected annual revenue growth" value={simpleInput.expectedAnnualRevenueGrowth} percent onChange={(value) => updateSimple("expectedAnnualRevenueGrowth", value)} />
-                <NumberField label="Expected EBITDA margin" value={simpleInput.expectedEbitdaMargin} percent onChange={(value) => updateSimple("expectedEbitdaMargin", value)} />
-                <div className="space-y-1.5 md:col-span-2"><Label>Valuation date</Label><Input value={simpleInput.valuationDate} onChange={(event) => updateSimple("valuationDate", event.target.value)} /></div>
-              </CardContent>
-            </Card>
-
-            <Card className="border-teal-200 bg-teal-50/40">
-              <CardHeader>
-                <CardTitle>Owner valuation summary</CardTitle>
-                <CardDescription>A simple business-facing answer using the same valuation engine. Use Extended model when an advisor or analyst needs to tune the assumptions.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-5">
-                <div className="rounded-lg border border-slate-200 bg-white p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Decision snapshot</p>
-                  <p className="mt-3 text-sm leading-6 text-slate-700">
-                    Base adjusted equity value is <span className="font-bold text-slate-950">{money(model.discounts.adjustedEquityValue, input.profile.currency)}</span>, with a current confidence score of <span className="font-bold text-slate-950">{valuationConfidenceScore}%</span>. {model.diagnostics.criticalCount > 0 ? "Critical diagnostics should be reviewed before using this valuation for a decision." : "No critical diagnostics are active, but assumptions should still be reviewed before sharing the result."}
-                  </p>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <MetricCard label="Business value" value={money(model.discounts.adjustedEquityValue, input.profile.currency)} helper="Estimated owner-facing equity value after private-company adjustments" />
-                  <MetricCard label="Value before discounts" value={money(model.bridge.equityValue, input.profile.currency)} helper="Equity value before marketability and company-specific discounts" />
-                  <MetricCard label="Company operating value" value={money(model.dcf.enterpriseValue, input.profile.currency)} helper="Enterprise value before cash, debt, and equity bridge items" />
-                  <MetricCard label="Valuation multiple" value={multiple(model.executiveSummary.evToNormalizedEbitda)} helper="EV / EBITDA based on the current model" />
-                </div>
-                <div className="rounded-lg border border-slate-200 bg-white p-4">
-                  <h3 className="text-sm font-bold uppercase tracking-wide text-slate-600">Likely value range</h3>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                    {model.scenarioAnalysis.map((scenario) => (
-                      <div key={scenario.name} className="rounded-xl bg-slate-50 p-3">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{scenario.name}</p>
-                        <p className="mt-2 text-lg font-bold text-slate-950">{money(scenario.adjustedEquityValue, input.profile.currency)}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-                  <h3 className="flex items-center gap-2 text-sm font-bold text-amber-950"><AlertCircle size={16} /> What could change the answer</h3>
-                  {model.warnings.length > 0 ? (
-                    <ul className="mt-3 space-y-2 text-sm text-amber-950">
-                      {model.warnings.slice(0, 4).map((warning) => <li key={warning.code}>{warning.message}</li>)}
-                    </ul>
-                  ) : (
-                    <p className="mt-3 text-sm text-amber-950">No major valuation warnings are active in the owner summary. A professional can still review the detailed assumptions in Extended model.</p>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </section>
-        ) : (
-          <>
-
-        <div className="grid gap-4 md:grid-cols-3">
-          <MetricCard label="Enterprise Value" value={money(model.dcf.enterpriseValue, input.profile.currency)} helper="PV of explicit FCFs plus PV of terminal value" />
-          <MetricCard label="Equity Value" value={money(model.bridge.equityValue, input.profile.currency)} helper="Enterprise value plus cash and assets less debt and costs" />
-          <MetricCard label="Adjusted Equity Value" value={money(model.discounts.adjustedEquityValue, input.profile.currency)} helper="After marketability, key-person, and customer concentration discounts" />
         </div>
 
         {!validation.success && (
@@ -2371,13 +2492,11 @@ export default function Home() {
           </Card>
         )}
 
-        <WorkflowNav sections={workflowSections} />
-
-        <WorkflowHeader id="company" eyebrow="Workflow 1" title="Company" description="Identify the business, currency, and valuation date before building the analysis." status={workflowSections[0].status} />
+        <WorkflowHeader id="assumptions" eyebrow="Assumptions" title="Company & Source Setup" description="Editable company fields and source mapping. These inputs support the conclusion above; they are not a separate valuation summary." status={workflowSections[0].status} />
         <div className="grid gap-5">
           <Card>
             <CardHeader>
-              <CardTitle>1. Company Profile</CardTitle>
+              <CardTitle>Company Profile</CardTitle>
               <CardDescription>Core identifying inputs for the valuation memorandum.</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 md:grid-cols-2">
@@ -2409,15 +2528,15 @@ export default function Home() {
             </CardContent>
           </Card>
           <Card>
-            <CardHeader><CardTitle>Industry Classification</CardTitle><CardDescription>PKD-driven classification and private-company assumptions. Beta and ERP are controlled by Market Data Sources and WACC.</CardDescription></CardHeader>
+            <CardHeader><CardTitle>Industry Classification</CardTitle><CardDescription>PKD-driven classification and private-company assumptions. Market beta, ERP and sector multiples are consolidated in Market Data Sources.</CardDescription></CardHeader>
             <CardContent className="space-y-4">
               <PkdSuggestionPanel suggestion={activePkdSuggestion} />
-              <div className="space-y-1.5"><Label>Industry template selector</Label><select className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 shadow-sm focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-100" value={professionalIndustryTemplate?.name ?? ""} onChange={(event) => event.target.value ? applyTemplateToInput(event.target.value) : update(["profile", "industry"], "")}><option value="">Select template</option>{industryTemplates.map((template) => <option key={template.name} value={template.name}>{template.name}</option>)}</select><p className="text-xs text-slate-500">Selecting a template updates classification, DLOM, and optional tax defaults. Beta and ERP stay sourced from Market Data Sources unless you edit WACC manually.</p></div>
-              {professionalIndustryTemplate ? <TemplateAssumptionTable template={professionalIndustryTemplate} /> : <p className="text-sm text-slate-500">Select an industry template to review classification, DLOM, tax defaults, and source notes.</p>}
+              <div className="space-y-1.5"><Label>Industry template selector</Label><select className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 shadow-sm focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-100" value={professionalIndustryTemplate?.name ?? ""} onChange={(event) => event.target.value ? applyTemplateToInput(event.target.value) : update(["profile", "industry"], "")}><option value="">Select template</option>{industryTemplates.map((template) => <option key={template.name} value={template.name}>{template.name}</option>)}</select><p className="text-xs text-slate-500">Selecting a template updates classification, DLOM, and optional tax defaults. WACC and multiples keep their own source trail.</p></div>
+              {professionalIndustryTemplate ? <TemplateAssumptionTable template={professionalIndustryTemplate} /> : <p className="text-sm text-slate-500">Select an industry template to review classification, DLOM, and tax defaults.</p>}
             </CardContent>
           </Card>
           <Card>
-            <CardHeader><CardTitle>Market Data Sources</CardTitle><CardDescription>Single source of truth for WACC market inputs: risk-free rate, ERP, and beta. Manual edits remain editable in WACC.</CardDescription></CardHeader>
+            <CardHeader><CardTitle>Market Data Sources</CardTitle><CardDescription>Single evidence panel for rates, ERP, beta, sector multiples, and peer screens. Detailed source trails stay in the relevant method detail.</CardDescription></CardHeader>
             <CardContent className="space-y-5">
               <div className="max-w-full overflow-x-auto rounded-lg border border-slate-200 bg-white">
                 <table className="w-full min-w-[760px] text-sm">
@@ -2448,14 +2567,19 @@ export default function Home() {
                 </div>
                 <p className="mt-3 text-xs leading-5 text-slate-600">{marketMultipleIntelligence.aiAnalystRole}</p>
               </div>
-              <div className="rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm text-teal-900">Source summary is synced automatically when the model starts. Edit WACC assumptions directly if you want to override sourced inputs.</div>
-              {marketData?.notes.length ? <p className="text-xs text-slate-500">{marketData.notes.join(" ")}</p> : null}
-              <p className="text-xs text-slate-500">Configured market source adapters: {marketSources.map((source) => source.name).join(", ")}</p>
+              <div className="rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm text-teal-900">Source summary updates automatically when the model starts. Manual overrides stay visible in Discount Rate and Market Multiples.</div>
+              {(marketData?.notes.length || marketSources.length) ? (
+                <details className="rounded-lg border border-slate-200 bg-white p-4 text-xs leading-5 text-slate-600">
+                  <summary className="cursor-pointer text-sm font-bold text-slate-800">View source audit notes</summary>
+                  {marketData?.notes.length ? <p className="mt-3">{marketData.notes.join(" ")}</p> : null}
+                  <p className="mt-3">Configured adapters: {marketSources.map((source) => source.name).join(", ")}</p>
+                </details>
+              ) : null}
             </CardContent>
           </Card>
         </div>
 
-        <WorkflowHeader id="historical-financials" eyebrow="Workflow 2" title="Historical Financials" description="Capture the three-year historical baseline used for revenue, profitability, capex, and working capital context." status={workflowSections[1].status} />
+        <WorkflowHeader id="historical-financials" eyebrow="Assumptions" title="Historical Baseline" description="Three-year operating history used to seed revenue, profitability, capex, and working capital assumptions." status={workflowSections[1].status} />
         <Card>
           <CardHeader>
             <CardTitle>Historical Financials for 3 Years</CardTitle>
@@ -2479,7 +2603,7 @@ export default function Home() {
           </CardContent>
         </Card>
 
-        <WorkflowHeader id="normalization" eyebrow="Workflow 3" title="Normalization" description="Review owner, non-recurring, and run-rate EBITDA adjustments that flow into forecast margins." status={workflowSections[2].status} />
+        <WorkflowHeader id="normalization" eyebrow="Assumptions" title="EBITDA Adjustments" description="Owner, non-recurring, and run-rate adjustments that feed normalized EBITDA and forecast margins." status={workflowSections[2].status} />
         <div className="grid gap-5">
           <Card>
             <CardHeader>
@@ -2497,7 +2621,7 @@ export default function Home() {
           </Card>
         </div>
 
-        <WorkflowHeader id="forecast" eyebrow="Workflow 4" title="Forecast" description="Set operating assumptions for revenue, EBITDA, taxes, capex, and working capital over the explicit forecast period." status={workflowSections[3].status} />
+        <WorkflowHeader id="forecast" eyebrow="Assumptions" title="Operating Forecast" description="Revenue, margin, tax, capex, and working capital assumptions for the explicit forecast period." status={workflowSections[3].status} />
         <div className="grid gap-5">
           <Card>
             <CardHeader>
@@ -2526,7 +2650,7 @@ export default function Home() {
 
           <Card>
             <CardHeader>
-              <CardTitle>5. Working Capital Assumptions</CardTitle>
+              <CardTitle>Working Capital Assumptions</CardTitle>
               <CardDescription>NWC is modeled as a percentage of revenue; cash flow impact is the period-over-period change.</CardDescription>
             </CardHeader>
             <CardContent>
@@ -2543,7 +2667,7 @@ export default function Home() {
           </Card>
         </div>
 
-        <WorkflowHeader id="wacc" eyebrow="Workflow 5" title="WACC" description="Build the discount rate using market inputs, private-company risk premia, capital structure, and tax assumptions." status={workflowSections[4].status} />
+        <WorkflowHeader id="wacc" eyebrow="Assumptions" title="Discount Rate" description="WACC build using market inputs, private-company premia, capital structure, and tax assumptions." status={workflowSections[4].status} />
         <div className="grid gap-5">
           <Card>
             <CardHeader><CardTitle>WACC Assumptions</CardTitle><CardDescription>Cost of equity = Rf + beta × ERP + size premium + CSRP.</CardDescription></CardHeader>
@@ -2558,14 +2682,17 @@ export default function Home() {
                   <Badge className="border-teal-200 bg-white text-teal-800">Auto-updated</Badge>
                 </div>
                 {riskFreeRateSource ? (
-                  <div className="mt-3 grid min-w-0 gap-2 text-xs text-slate-600 sm:grid-cols-2">
-                    <span className="break-words"><strong>Source:</strong> {riskFreeRateSource.source}</span>
-                    <span className="break-words"><strong>Series ID:</strong> {riskFreeRateSource.seriesId ?? "Unavailable"}</span>
-                    <span className="break-words"><strong>Observation date:</strong> {riskFreeRateSource.observationDate ?? "Unavailable"}</span>
-                    <span className="break-words"><strong>Fetched at:</strong> {riskFreeRateSource.fetchedAt}</span>
-                    <span className="break-words"><strong>Confidence:</strong> {riskFreeRateSource.confidence}</span>
-                    <span className="break-words"><strong>Source status:</strong> {riskFreeRateSource.status}</span>
-                  </div>
+                  <details className="mt-3 rounded-md border border-slate-200 bg-white p-3">
+                    <summary className="cursor-pointer text-xs font-bold text-slate-700">View source trail</summary>
+                    <div className="mt-3 grid min-w-0 gap-2 text-xs text-slate-600 sm:grid-cols-2">
+                      <span className="break-words"><strong>Source:</strong> {riskFreeRateSource.source}</span>
+                      <span className="break-words"><strong>Series ID:</strong> {riskFreeRateSource.seriesId ?? "Unavailable"}</span>
+                      <span className="break-words"><strong>Observation date:</strong> {riskFreeRateSource.observationDate ?? "Unavailable"}</span>
+                      <span className="break-words"><strong>Fetched at:</strong> {riskFreeRateSource.fetchedAt}</span>
+                      <span className="break-words"><strong>Confidence:</strong> {riskFreeRateSource.confidence}</span>
+                      <span className="break-words"><strong>Source status:</strong> {riskFreeRateSource.status}</span>
+                    </div>
+                  </details>
                 ) : <p className="mt-3 text-xs text-slate-500">No live FRED risk-free rate has been fetched yet.</p>}
                 {riskFreeRateStatus ? <p className="mt-3 text-xs text-slate-500">{riskFreeRateStatus}{riskFreeRateManuallyEdited && riskFreeRateSource?.value !== null ? " Manual risk-free rate edits are preserved unless you refresh explicitly." : ""}</p> : null}
               </div>
@@ -2579,16 +2706,19 @@ export default function Home() {
                   <Badge className="border-teal-200 bg-white text-teal-800">Auto-updated</Badge>
                 </div>
                 {erpSource ? (
-                  <div className="mt-3 grid min-w-0 gap-2 text-xs text-slate-600 sm:grid-cols-2">
-                    <span className="break-words"><strong>Mature market ERP:</strong> {erpSource.matureMarketErp !== null ? pct(erpSource.matureMarketErp) : "Unavailable"}</span>
-                    <span className="break-words"><strong>Country risk premium:</strong> {erpSource.countryRiskPremium !== null ? pct(erpSource.countryRiskPremium) : "Unavailable"}</span>
-                    <span className="break-words"><strong>Total ERP:</strong> {erpSource.totalErp !== null ? pct(erpSource.totalErp) : "Unavailable"}</span>
-                    <span className="break-words"><strong>Source:</strong> {erpSource.source}</span>
-                    <span className="break-words"><strong>Source date:</strong> {erpSource.sourceDate}</span>
-                    <span className="break-words"><strong>Dataset age:</strong> {erpSource.datasetAgeDays} days</span>
-                    <span className="break-words"><strong>Source status:</strong> {erpSource.refreshStatus}</span>
-                    <span className="break-words"><strong>Confidence:</strong> {erpSource.confidence}</span>
-                  </div>
+                  <details className="mt-3 rounded-md border border-slate-200 bg-white p-3">
+                    <summary className="cursor-pointer text-xs font-bold text-slate-700">View source trail</summary>
+                    <div className="mt-3 grid min-w-0 gap-2 text-xs text-slate-600 sm:grid-cols-2">
+                      <span className="break-words"><strong>Mature market ERP:</strong> {erpSource.matureMarketErp !== null ? pct(erpSource.matureMarketErp) : "Unavailable"}</span>
+                      <span className="break-words"><strong>Country risk premium:</strong> {erpSource.countryRiskPremium !== null ? pct(erpSource.countryRiskPremium) : "Unavailable"}</span>
+                      <span className="break-words"><strong>Total ERP:</strong> {erpSource.totalErp !== null ? pct(erpSource.totalErp) : "Unavailable"}</span>
+                      <span className="break-words"><strong>Source:</strong> {erpSource.source}</span>
+                      <span className="break-words"><strong>Source date:</strong> {erpSource.sourceDate}</span>
+                      <span className="break-words"><strong>Dataset age:</strong> {erpSource.datasetAgeDays} days</span>
+                      <span className="break-words"><strong>Source status:</strong> {erpSource.refreshStatus}</span>
+                      <span className="break-words"><strong>Confidence:</strong> {erpSource.confidence}</span>
+                    </div>
+                  </details>
                 ) : <p className="mt-3 text-xs text-slate-500">No Damodaran ERP seed has been loaded yet.</p>}
                 {erpSource?.warning ? <p className="mt-3 text-xs font-semibold text-amber-700">{erpSource.warning}</p> : null}
                 {erpStatus ? <p className="mt-3 text-xs text-slate-500">{erpStatus}{erpManuallyEdited && erpSource?.value !== null ? " Manual ERP edits are preserved during refresh and imports." : ""}</p> : null}
@@ -2603,19 +2733,22 @@ export default function Home() {
                   <Badge className="border-teal-200 bg-white text-teal-800">Auto-updated</Badge>
                 </div>
                 {betaSource ? (
-                  <div className="mt-3 grid min-w-0 gap-2 text-xs text-slate-600 sm:grid-cols-2">
-                    <span className="break-words"><strong>App industry:</strong> {betaSource.appIndustry || "Unavailable"}</span>
-                    <span className="break-words"><strong>Damodaran industry:</strong> {betaSource.damodaranIndustry ?? "Unavailable"}</span>
-                    <span className="break-words"><strong>Unlevered beta:</strong> {betaSource.unleveredBeta !== null ? betaSource.unleveredBeta.toFixed(2) : "Unavailable"}</span>
-                    <span className="break-words"><strong>Cash-adjusted beta:</strong> {betaSource.cashAdjustedBeta !== null ? betaSource.cashAdjustedBeta.toFixed(2) : "Unavailable"}</span>
-                    <span className="break-words"><strong>Total beta:</strong> {betaSource.totalUnleveredBeta !== null && betaSource.totalUnleveredBeta !== undefined ? betaSource.totalUnleveredBeta.toFixed(2) : "Unavailable"}</span>
-                    <span className="break-words"><strong>Sector WACC:</strong> {betaSource.costOfCapitalLocal !== null && betaSource.costOfCapitalLocal !== undefined ? pct(betaSource.costOfCapitalLocal) : "Unavailable"}</span>
-                    <span className="break-words"><strong>Source:</strong> {betaSource.source}</span>
-                    <span className="break-words"><strong>Source date:</strong> {betaSource.sourceDate}</span>
-                    <span className="break-words"><strong>Dataset age:</strong> {betaSource.datasetAgeDays} days</span>
-                    <span className="break-words"><strong>Source status:</strong> {betaSource.refreshStatus}</span>
-                    <span className="break-words"><strong>Confidence:</strong> {betaSource.confidence}</span>
-                  </div>
+                  <details className="mt-3 rounded-md border border-slate-200 bg-white p-3">
+                    <summary className="cursor-pointer text-xs font-bold text-slate-700">View source trail</summary>
+                    <div className="mt-3 grid min-w-0 gap-2 text-xs text-slate-600 sm:grid-cols-2">
+                      <span className="break-words"><strong>App industry:</strong> {betaSource.appIndustry || "Unavailable"}</span>
+                      <span className="break-words"><strong>Damodaran industry:</strong> {betaSource.damodaranIndustry ?? "Unavailable"}</span>
+                      <span className="break-words"><strong>Unlevered beta:</strong> {betaSource.unleveredBeta !== null ? betaSource.unleveredBeta.toFixed(2) : "Unavailable"}</span>
+                      <span className="break-words"><strong>Cash-adjusted beta:</strong> {betaSource.cashAdjustedBeta !== null ? betaSource.cashAdjustedBeta.toFixed(2) : "Unavailable"}</span>
+                      <span className="break-words"><strong>Total beta:</strong> {betaSource.totalUnleveredBeta !== null && betaSource.totalUnleveredBeta !== undefined ? betaSource.totalUnleveredBeta.toFixed(2) : "Unavailable"}</span>
+                      <span className="break-words"><strong>Sector WACC:</strong> {betaSource.costOfCapitalLocal !== null && betaSource.costOfCapitalLocal !== undefined ? pct(betaSource.costOfCapitalLocal) : "Unavailable"}</span>
+                      <span className="break-words"><strong>Source:</strong> {betaSource.source}</span>
+                      <span className="break-words"><strong>Source date:</strong> {betaSource.sourceDate}</span>
+                      <span className="break-words"><strong>Dataset age:</strong> {betaSource.datasetAgeDays} days</span>
+                      <span className="break-words"><strong>Source status:</strong> {betaSource.refreshStatus}</span>
+                      <span className="break-words"><strong>Confidence:</strong> {betaSource.confidence}</span>
+                    </div>
+                  </details>
                 ) : <p className="mt-3 text-xs text-slate-500">No Damodaran beta seed has been loaded yet.</p>}
                 {betaSource?.warning ? <p className="mt-3 text-xs font-semibold text-amber-700">{betaSource.warning}</p> : null}
                 {betaStatus ? <p className="mt-3 text-xs text-slate-500">{betaStatus}{betaManuallyEdited && betaSource?.value !== null ? " Manual beta edits are preserved during refresh and imports." : ""}</p> : null}
@@ -2629,7 +2762,7 @@ export default function Home() {
           </Card>
         </div>
 
-        <WorkflowHeader id="dcf" eyebrow="Workflow 6" title="DCF" description="Review terminal value, EV-to-equity bridge, private-company discounts, and full DCF output schedules." status={workflowSections[5].status} />
+        <WorkflowHeader id="dcf" eyebrow="Method detail" title="DCF Indication" description="Income-approach mechanics: terminal value, EV-to-equity bridge, private-company discounts, and DCF support schedules." status={workflowSections[5].status} />
         <div className="grid gap-5">
           <Card>
             <CardHeader><CardTitle>Terminal Value</CardTitle><CardDescription>Gordon growth and exit multiple are both calculated; selected method drives EV.</CardDescription></CardHeader>
@@ -2645,7 +2778,7 @@ export default function Home() {
           </Card>
 
           <Card>
-            <CardHeader><CardTitle>8. EV to Equity Bridge</CardTitle><CardDescription>Equity value = EV + cash + non-operating assets - debt - leasing - other debt-like items - transaction costs.</CardDescription></CardHeader>
+            <CardHeader><CardTitle>EV to Equity Bridge</CardTitle><CardDescription>Equity value = EV + cash + non-operating assets - debt - leasing - other debt-like items - transaction costs.</CardDescription></CardHeader>
             <CardContent className="grid gap-3">
               <NumberField label="Cash" value={input.bridge.cash} onChange={(v) => update(["bridge", "cash"], v)} />
               <NumberField label="Debt" value={input.bridge.debt} onChange={(v) => update(["bridge", "debt"], v)} />
@@ -2660,7 +2793,7 @@ export default function Home() {
 
         <div className="grid gap-5">
           <Card>
-            <CardHeader><CardTitle>9. Private Company Discounts</CardTitle><CardDescription>Discounts compound multiplicatively to avoid double-counting retained value.</CardDescription></CardHeader>
+            <CardHeader><CardTitle>Private Company Discounts</CardTitle><CardDescription>Discounts compound multiplicatively to avoid double-counting retained value.</CardDescription></CardHeader>
             <CardContent className="grid gap-3">
               <NumberField label="Lack of marketability" value={input.discounts.lackOfMarketability} percent onChange={(v) => update(["discounts", "lackOfMarketability"], v)} />
               <NumberField label="Key-person discount" value={input.discounts.keyPersonDiscount} percent onChange={(v) => update(["discounts", "keyPersonDiscount"], v)} />
@@ -2670,7 +2803,7 @@ export default function Home() {
           </Card>
 
           <Card>
-            <CardHeader><CardTitle>10. Valuation Output</CardTitle><CardDescription>Intermediate calculations from projected operating performance to present value.</CardDescription></CardHeader>
+            <CardHeader><CardTitle>DCF Support Output</CardTitle><CardDescription>Intermediate calculations from projected operating performance to present value.</CardDescription></CardHeader>
             <CardContent className="space-y-5">
               <div className="chart-frame">
                 <ResponsiveContainer width="100%" height={260}>
@@ -2688,64 +2821,15 @@ export default function Home() {
         </div>
 
         <div className="space-y-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <Badge>Valuation output</Badge>
-              <h2 className="mt-3 text-2xl font-bold text-slate-950">Decision summary</h2>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">A clean owner-facing conclusion first, with technical schedules kept below for professional review.</p>
-            </div>
-            <a href="#export" className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800">Go to export</a>
-          </div>
-
-          <Card className="border-slate-300 bg-white">
-            <CardHeader>
-              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <CardTitle>Recommended valuation view</CardTitle>
-                  <CardDescription>Plain-language conclusion for owners, advisors, and internal decision makers.</CardDescription>
-                </div>
-                <Badge className={valuationConfidenceScore >= 80 ? "border-emerald-200 bg-emerald-50 text-emerald-800" : valuationConfidenceScore >= 60 ? "border-amber-200 bg-amber-50 text-amber-800" : "border-red-200 bg-red-50 text-red-800"}>Confidence {valuationConfidenceScore}%</Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-5">
-              <div className="rounded-xl border border-teal-200 bg-teal-50/70 p-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-teal-800">Investment view</p>
-                <p className="mt-3 text-base leading-7 text-slate-800">
-                  The indicated owner-facing equity value is <span className="font-bold text-slate-950">{money(model.valuationReport.valuationConclusion.baseAdjustedEquityValue, input.profile.currency)}</span>, within a current range of <span className="font-bold text-slate-950">{money(valuationRangeLow, input.profile.currency)}</span> to <span className="font-bold text-slate-950">{money(valuationRangeHigh, input.profile.currency)}</span>.
-                </p>
-                <p className="mt-2 text-sm leading-6 text-slate-700">{decisionHeadline}</p>
-              </div>
-              <div className="grid gap-3 md:grid-cols-3">
-                <MetricCard label="Owner equity value" value={money(model.valuationReport.valuationConclusion.baseAdjustedEquityValue, input.profile.currency)} helper="Base case after private-company adjustments" />
-                <MetricCard label="Valuation range" value={`${money(valuationRangeLow, input.profile.currency)} - ${money(valuationRangeHigh, input.profile.currency)}`} helper="Bear to bull adjusted equity values" />
-                <MetricCard label="Market multiple" value={multiple(model.executiveSummary.evToNormalizedEbitda)} helper="Current EV / normalized EBITDA" />
-              </div>
-              <div className="grid gap-4 lg:grid-cols-2">
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <h3 className="text-sm font-bold text-slate-950">What drives the valuation</h3>
-                  <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-700">
-                    {summaryDrivers.map((driver) => <li key={driver}>{driver}</li>)}
-                  </ul>
-                </div>
-                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-                  <h3 className="text-sm font-bold text-amber-950">What to review before sharing</h3>
-                  <ul className="mt-3 space-y-2 text-sm leading-6 text-amber-950">
-                    {summaryWarnings.map((warning) => <li key={warning}>{warning}</li>)}
-                  </ul>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
           <Card>
             <CardHeader>
-              <CardTitle>Professional metrics</CardTitle>
-              <CardDescription>Technical outputs for advisors and analysts who need to review the model assumptions.</CardDescription>
+              <CardTitle>DCF-only technical metrics</CardTitle>
+              <CardDescription>Detailed income-approach outputs for advisors and analysts. The headline valuation range remains the blended view above.</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-3 md:grid-cols-2">
-              <MetricCard label="Enterprise Value" value={money(model.executiveSummary.enterpriseValue, input.profile.currency)} helper="DCF enterprise value" />
-              <MetricCard label="Equity Value" value={money(model.executiveSummary.equityValue, input.profile.currency)} helper="After EV-to-equity bridge" />
-              <MetricCard label="Adjusted Equity Value" value={money(model.executiveSummary.adjustedEquityValue, input.profile.currency)} helper="After private company adjustments" />
+              <MetricCard label="DCF Enterprise Value" value={money(model.executiveSummary.enterpriseValue, input.profile.currency)} helper="Income-approach enterprise value" />
+              <MetricCard label="DCF Equity Value" value={money(model.executiveSummary.equityValue, input.profile.currency)} helper="After EV-to-equity bridge" />
+              <MetricCard label="DCF Adjusted Equity" value={money(model.executiveSummary.adjustedEquityValue, input.profile.currency)} helper="After private company adjustments" />
               <MetricCard label="EV / EBITDA" value={multiple(model.executiveSummary.evToNormalizedEbitda)} helper="EV divided by normalized EBITDA" />
               <MetricCard label="Equity / EBITDA" value={multiple(model.executiveSummary.equityToNormalizedEbitda)} helper="Equity value divided by normalized EBITDA" />
               <MetricCard label="Implied WACC" value={pct(model.executiveSummary.impliedWacc)} helper="Discount rate used in DCF" />
@@ -2840,7 +2924,7 @@ export default function Home() {
           </div>
         </div>
 
-        <WorkflowHeader id="market-approach" eyebrow="Workflow 7" title="AI-assisted Market Multiples" description="Use source-traced EV/EBITDA and EV/Revenue multiples. BizRaport validates peer fit; approved market evidence drives the valuation." status={workflowSections[6].status} />
+        <WorkflowHeader id="market-approach" eyebrow="Method detail" title="Market Multiples" description="Source-traced EV/EBITDA and EV/Revenue evidence. AI helps select peers and rationale, but the numbers come from approved sources." status={workflowSections[6].status} />
         <Card>
           <CardHeader>
             <CardTitle>Market Approach</CardTitle>
@@ -3042,7 +3126,7 @@ export default function Home() {
 
             <div className="grid gap-5 lg:grid-cols-3">
               <Card>
-                <CardHeader><CardTitle>Market Multiple Calculation</CardTitle><CardDescription>Weighted market EV from manually selected benchmark multiples.</CardDescription></CardHeader>
+                <CardHeader><CardTitle>Market Indication</CardTitle><CardDescription>Weighted market EV from approved or draft benchmark multiples.</CardDescription></CardHeader>
                 <CardContent>
                   <OutputRow label="Normalized EBITDA" value={money(model.valuationReport.marketValuation.normalizedEbitda, input.profile.currency)} />
                   <OutputRow label="Latest revenue" value={money(model.valuationReport.marketValuation.latestRevenue, input.profile.currency)} />
@@ -3066,12 +3150,12 @@ export default function Home() {
               </Card>
 
               <Card>
-                <CardHeader><CardTitle>Blended Valuation</CardTitle><CardDescription>Example weighting combines DCF and market approach indications.</CardDescription></CardHeader>
+                <CardHeader><CardTitle>Method Reconciliation</CardTitle><CardDescription>Supporting comparison between DCF and market indications. The headline conclusion remains the range at the top.</CardDescription></CardHeader>
                 <CardContent>
                   <OutputRow label="DCF weighting" value={pct(model.valuationReport.marketValuation.blendedValuation.dcfWeight)} />
                   <OutputRow label="Market weighting" value={pct(model.valuationReport.marketValuation.blendedValuation.marketWeight)} />
-                  <OutputRow label="Blended EV" value={money(model.valuationReport.marketValuation.blendedValuation.blendedEnterpriseValue, input.profile.currency)} emphasis />
-                  <OutputRow label="Blended equity value" value={money(model.valuationReport.marketValuation.blendedValuation.blendedEquityValue, input.profile.currency)} emphasis />
+                  <OutputRow label="Illustrative method EV" value={money(model.valuationReport.marketValuation.blendedValuation.blendedEnterpriseValue, input.profile.currency)} emphasis />
+                  <OutputRow label="Illustrative method equity" value={money(model.valuationReport.marketValuation.blendedValuation.blendedEquityValue, input.profile.currency)} emphasis />
                   <div className="mt-4 rounded-xl bg-slate-50 p-3 text-sm text-slate-600">
                     {model.valuationReport.marketValuation.diagnostics.length > 0 ? model.valuationReport.marketValuation.diagnostics.map((diagnostic) => <p key={diagnostic.code}>{diagnostic.message} {diagnostic.suggestedAction}</p>) : <p>No market approach diagnostics triggered.</p>}
                   </div>
@@ -3081,7 +3165,7 @@ export default function Home() {
           </CardContent>
         </Card>
 
-        <WorkflowHeader id="scenarios-sensitivity" eyebrow="Workflow 8" title="Scenarios & Sensitivity" description="Compare Bear, Base, and Bull outcomes and review WACC / terminal growth sensitivity." status={workflowSections[7].status} />
+        <WorkflowHeader id="risk" eyebrow="Risk" title="Scenarios & Sensitivity" description="Compare Bear, Base, and Bull outcomes and review WACC / terminal growth sensitivity." status={workflowSections[7].status} />
         <Card>
           <CardHeader>
             <CardTitle>Bear / Base / Bull Scenario Analysis</CardTitle>
@@ -3152,7 +3236,7 @@ export default function Home() {
           </CardContent>
         </Card>
 
-        <WorkflowHeader id="diagnostics" eyebrow="Workflow 9" title="Diagnostics" description="Review automated quality-control checks before relying on the valuation conclusion." status={workflowSections[8].status} />
+        <WorkflowHeader id="diagnostics" eyebrow="Risk" title="Model Checks" description="Automated quality-control checks before relying on the valuation conclusion." status={workflowSections[8].status} />
         <Card>
           <CardHeader>
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -3167,7 +3251,7 @@ export default function Home() {
             </div>
           </CardHeader>
           <CardContent className="space-y-5">
-            {(["critical", "warning", "info"] as const).map((severity) => (
+            {(["critical", "warning"] as const).map((severity) => (
               <div key={severity} className="rounded-lg border border-slate-200 bg-white p-4">
                 <div className="mb-3 flex items-center justify-between">
                   <h4 className="text-sm font-bold uppercase tracking-wide text-slate-700">{severity}</h4>
@@ -3191,10 +3275,29 @@ export default function Home() {
                 )}
               </div>
             ))}
+            <details className="rounded-lg border border-slate-200 bg-white p-4">
+              <summary className="cursor-pointer text-sm font-bold uppercase tracking-wide text-slate-700">Info checks ({model.diagnostics.bySeverity.info.length})</summary>
+              {model.diagnostics.bySeverity.info.length > 0 ? (
+                <div className="mt-3 grid gap-3">
+                  {model.diagnostics.bySeverity.info.map((diagnostic) => (
+                    <div key={diagnostic.code} className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge className="border-slate-200 bg-white text-slate-700">{diagnostic.severity}</Badge>
+                        <Badge className="border-slate-200 bg-white text-slate-700">{diagnostic.area}</Badge>
+                      </div>
+                      <p className="mt-3 text-sm font-semibold text-slate-950">{diagnostic.message}</p>
+                      <p className="mt-1 text-sm text-slate-600">Suggested action: {diagnostic.suggestedAction}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-3 text-sm text-slate-500">No info diagnostics triggered.</p>
+              )}
+            </details>
           </CardContent>
         </Card>
 
-        <WorkflowHeader id="export" eyebrow="Workflow 10" title="Export" description="Create a clean client-ready PDF report, copy the summary, or download the model data for deeper review." status={workflowSections[9].status} />
+        <WorkflowHeader id="export" eyebrow="Export" title="Export Package" description="Create a clean client-ready PDF report, copy the summary, or download model data for deeper review." status={workflowSections[9].status} />
         <Card>
           <CardHeader>
             <CardTitle>Export Valuation Package</CardTitle>
