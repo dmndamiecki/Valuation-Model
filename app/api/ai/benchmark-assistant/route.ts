@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getDamodaranEuropeBenchmark, suggestDamodaranEuropeIndustry, type DamodaranEuropeBenchmark } from "@/lib/data-sources/damodaran-europe";
+import { getDamodaranEuropeBenchmark, getDamodaranEuropeIndustryNames, suggestDamodaranEuropeIndustry, type DamodaranEuropeBenchmark } from "@/lib/data-sources/damodaran-europe";
 import { buildBenchmarkAssistantFallback, benchmarkAssistantResultSchema, type BenchmarkAssistantResult } from "@/lib/valuation/benchmark-assistant";
 import { buildBizRaportPeerFilters } from "@/lib/valuation/comparable-companies";
 import type { PeerBenchmarkResult } from "@/lib/valuation/peer-benchmarks";
@@ -51,7 +51,7 @@ function buildPrompt(input: ValuationInput, damodaranBenchmark: DamodaranEuropeB
   return [
     {
       role: "developer",
-      content: "You are a valuation benchmark assistant for Polish private SME valuation. You may recommend industries, peer tickers, BizRaport filters, rationale and warnings. Never invent EV/EBITDA, EV/Sales, beta, WACC, market cap, EBITDA, revenue, enterprise value or any valuation number. If numeric public market data is missing, set numeric fields to null and mark the source as pending. Return JSON only.",
+      content: "You are a valuation benchmark assistant for Polish private SME valuation. You may recommend industries, peer tickers, BizRaport filters, rationale and warnings. Never invent EV/EBITDA, EV/Sales, beta, WACC, market cap, EBITDA, revenue, enterprise value or any valuation number. Suggested Damodaran industry must be selected verbatim from the provided allowedDamodaranIndustries list. If the rule-based PKD match is low or medium confidence, use PKD, company name, website and business context to choose the closest allowed industry and explain the rationale. If numeric public market data is missing, set numeric fields to null and mark the source as pending. Return JSON only.",
     },
     {
       role: "user",
@@ -72,6 +72,7 @@ function buildPrompt(input: ValuationInput, damodaranBenchmark: DamodaranEuropeB
         latestHistorical,
         currentMarketMultiples: input.marketMultiples,
         damodaranBenchmark,
+        allowedDamodaranIndustries: getDamodaranEuropeIndustryNames(),
         bizRaportPeerScreen: peerBenchmarks ? {
           catalogCount: peerBenchmarks.catalogCount,
           sampledFinancialCount: peerBenchmarks.sampledFinancialCount,
@@ -172,9 +173,18 @@ export async function POST(request: Request) {
       throw new Error("AI benchmark assistant returned an invalid response shape.");
     }
 
+    const allowedDamodaranIndustries = new Set(getDamodaranEuropeIndustryNames());
+    const sanitizedDamodaranIndustry = parsed.data.suggestedDamodaranIndustry && allowedDamodaranIndustries.has(parsed.data.suggestedDamodaranIndustry)
+      ? parsed.data.suggestedDamodaranIndustry
+      : industrySuggestion.damodaranIndustry;
     const publicCompSummary = summarizePublicComps(parsed.data.suggestedPublicComps);
     return NextResponse.json({
       ...parsed.data,
+      suggestedDamodaranIndustry: sanitizedDamodaranIndustry,
+      damodaranConfidence: sanitizedDamodaranIndustry === parsed.data.suggestedDamodaranIndustry ? parsed.data.damodaranConfidence : industrySuggestion.confidence,
+      industryRationale: sanitizedDamodaranIndustry === parsed.data.suggestedDamodaranIndustry
+        ? parsed.data.industryRationale
+        : `${industrySuggestion.rationale} AI returned a Damodaran industry outside the approved dataset list, so the rule-based mapped industry was retained.`,
       suggestedPublicComps: parsed.data.suggestedPublicComps.map((company) => ({
         ...company,
         marketCap: null,

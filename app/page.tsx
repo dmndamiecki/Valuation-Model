@@ -20,7 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { createDamodaranManualSeedSnapshot } from "@/lib/data-sources/damodaran";
 import type { DamodaranBetaSuggestion } from "@/lib/data-sources/damodaran-beta";
 import type { DamodaranErpSuggestion } from "@/lib/data-sources/damodaran-erp";
-import type { DamodaranEuropeBenchmark } from "@/lib/data-sources/damodaran-europe";
+import { getDamodaranEuropeIndustryNames, type DamodaranEuropeBenchmark } from "@/lib/data-sources/damodaran-europe";
 import { createFredManualSeedSnapshot, type FredRiskFreeRateResult } from "@/lib/data-sources/fred";
 import { cleanBizRaportKrs, isKrs, isNip } from "@/lib/data-sources/identifiers";
 import { getCompanyDataSources, getMarketDataSources } from "@/lib/data-sources/mapping";
@@ -189,22 +189,23 @@ function StageScrollRail({
   const activeSection = sections.find((section) => section.id === activeId) ?? sections[0];
 
   return (
-    <aside aria-label="Current workbench stage" className="fixed right-4 top-1/2 z-30 hidden w-40 -translate-y-1/2 xl:block">
-      <div className="rounded-2xl border border-teal-100 bg-white/88 p-3 shadow-[0_24px_70px_rgba(15,23,42,0.14)] backdrop-blur">
-        <div className="mb-3 rounded-xl bg-gradient-to-br from-teal-50 to-emerald-50 p-3">
-          <p className="text-[0.62rem] font-bold uppercase tracking-[0.18em] text-teal-700">You are in</p>
-          <p className="mt-1 break-words text-sm font-bold leading-5 text-slate-950">{activeSection?.label ?? "Conclusion"}</p>
+    <aside aria-label="Current workbench stage" className="group fixed right-2 top-1/2 z-30 hidden w-14 -translate-y-1/2 transition-all duration-200 hover:w-44 xl:block">
+      <div className="overflow-hidden rounded-2xl border border-teal-100 bg-white/86 p-2 shadow-[0_18px_46px_rgba(15,23,42,0.13)] backdrop-blur">
+        <div className="mb-3 rounded-xl bg-gradient-to-br from-teal-50 to-emerald-50 p-2">
+          <p className="text-center text-[0.58rem] font-bold uppercase tracking-[0.12em] text-teal-700 group-hover:text-left">Stage</p>
+          <p className="mt-1 hidden truncate text-sm font-bold leading-5 text-slate-950 group-hover:block">{activeSection?.label ?? "Methods"}</p>
+          <p className="mt-1 text-center text-xs font-bold text-slate-950 group-hover:hidden">{activeSection?.label?.slice(0, 3) ?? "Met"}</p>
         </div>
-        <div className="relative ml-2">
-          <div className="absolute bottom-2 left-[9px] top-2 w-1 rounded-full bg-slate-100" />
-          <div className="absolute left-[9px] top-2 w-1 rounded-full bg-gradient-to-b from-teal-500 via-emerald-400 to-blue-400 transition-all duration-300" style={{ height: `${Math.max(progress, 4)}%` }} />
+        <div className="relative">
+          <div className="absolute bottom-2 left-[18px] top-2 w-1 rounded-full bg-slate-100 group-hover:left-[9px]" />
+          <div className="absolute left-[18px] top-2 w-1 rounded-full bg-gradient-to-b from-teal-500 via-emerald-400 to-blue-400 transition-all duration-300 group-hover:left-[9px]" style={{ height: `${Math.max(progress, 4)}%` }} />
           <div className="space-y-2">
             {sections.map((section) => {
               const active = section.id === activeId;
               return (
-                <a key={section.id} href={`#${section.id}`} className="group relative flex min-w-0 items-center gap-3 rounded-lg px-1 py-1.5">
+                <a key={section.id} href={`#${section.id}`} title={section.label} className="relative flex min-w-0 items-center gap-3 rounded-lg px-2 py-1.5 transition hover:bg-teal-50">
                   <span className={`relative z-10 h-5 w-5 shrink-0 rounded-full border-2 transition ${active ? "border-teal-700 bg-teal-600 shadow-[0_0_0_5px_rgba(20,184,166,0.15)]" : "border-white bg-slate-300 group-hover:bg-teal-300"}`} />
-                  <span className={`truncate text-xs font-bold transition ${active ? "text-teal-900" : "text-slate-500 group-hover:text-slate-800"}`}>{section.label}</span>
+                  <span className={`hidden truncate text-xs font-bold transition group-hover:block ${active ? "text-teal-900" : "text-slate-500"}`}>{section.label}</span>
                 </a>
               );
             })}
@@ -238,6 +239,7 @@ const chartTooltipStyle = {
   color: "#0f172a",
 };
 const marketMultipleSourceKindOptions: MarketMultipleSourceKind[] = ["manual", "publicComparable", "damodaranSector", "licensedProvider", "aiSuggested"];
+const damodaranEuropeIndustryNames = getDamodaranEuropeIndustryNames();
 
 function money(value: number, currency = "USD") {
   return Number.isFinite(value) ? `${currency} ${currencyFormatter.format(value)}` : "N/M";
@@ -564,65 +566,6 @@ function WorkbenchNextSteps({
   );
 }
 
-function ValuationRangePanel({
-  currency,
-  low,
-  base,
-  high,
-  confidenceScore,
-  readinessHeadline,
-}: {
-  currency: string;
-  low: number;
-  base: number;
-  high: number;
-  confidenceScore: number;
-  readinessHeadline: string;
-}) {
-  const range = Math.max(high - low, 1);
-  const basePosition = Math.min(Math.max(((base - low) / range) * 100, 0), 100);
-
-  return (
-    <Card className="overflow-hidden border-slate-300 bg-white">
-      <CardHeader>
-        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div>
-            <CardTitle>Conclusion: valuation range</CardTitle>
-            <CardDescription>This is the one headline answer. Method detail, DCF math, source evidence and exports sit below in the workbench.</CardDescription>
-          </div>
-          <Badge className={confidenceScore >= 80 ? "border-emerald-200 bg-emerald-50 text-emerald-800" : confidenceScore >= 60 ? "border-amber-200 bg-amber-50 text-amber-800" : "border-red-200 bg-red-50 text-red-800"}>Confidence {confidenceScore}%</Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-5">
-        <div className="grid gap-3 lg:grid-cols-3">
-          {[
-            ["Low indication", money(low, currency), "Lower end of active method range"],
-            ["Headline value", money(base, currency), "Weighted midpoint across active methods"],
-            ["High indication", money(high, currency), "Upper end of active method range"],
-          ].map(([label, value, helper]) => (
-            <div key={label} className="min-w-0 rounded-lg border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-4">
-              <p className="text-[0.7rem] font-bold uppercase tracking-[0.12em] text-slate-500">{label}</p>
-              <p className="mt-3 break-words text-xl font-bold text-slate-950 sm:text-2xl">{value}</p>
-              <p className="mt-2 text-sm text-slate-500">{helper}</p>
-            </div>
-          ))}
-        </div>
-        <div>
-          <div className="relative h-4 rounded-full bg-slate-100 shadow-inner">
-            <div className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-teal-800 to-emerald-500" style={{ width: `${basePosition}%` }} />
-            <div className="absolute top-1/2 h-6 w-6 -translate-y-1/2 rounded-full border-2 border-white bg-slate-950 shadow-lg" style={{ left: `calc(${basePosition}% - 12px)` }} />
-          </div>
-          <div className="mt-2 flex justify-between text-xs font-semibold text-slate-500">
-            <span>{money(low, currency)}</span>
-            <span>{money(high, currency)}</span>
-          </div>
-        </div>
-        <p className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">{readinessHeadline}</p>
-      </CardContent>
-    </Card>
-  );
-}
-
 function engineStatusClassName(status: ValuationEngineResult["status"]) {
   if (status === "ready") return "border-emerald-200 bg-emerald-50 text-emerald-800";
   if (status === "review") return "border-amber-200 bg-amber-50 text-amber-800";
@@ -696,8 +639,8 @@ function EngineCockpit({
               <div className="flex items-center gap-2">
                 <span className="flex h-9 w-9 items-center justify-center rounded-md bg-slate-950 text-white"><Layers3 size={18} /></span>
                 <div>
-                  <CardTitle>Method Weighting</CardTitle>
-                  <CardDescription>Breakdown of the headline conclusion by method. This is supporting evidence, not a second valuation answer.</CardDescription>
+                  <CardTitle>Valuation Models</CardTitle>
+                  <CardDescription>One blended valuation view across DCF, market multiples, asset floor, scenarios, and Monte Carlo.</CardDescription>
                 </div>
               </div>
             </div>
@@ -711,9 +654,9 @@ function EngineCockpit({
             <div className="rounded-lg border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 p-5 text-white shadow-lg shadow-slate-900/10">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                  <p className="text-[0.7rem] font-bold uppercase tracking-[0.16em] text-teal-100">Same headline value, by method</p>
+                  <p className="text-[0.7rem] font-bold uppercase tracking-[0.16em] text-teal-100">Blended value across models</p>
                   <p className="mt-3 break-words text-3xl font-bold leading-tight sm:text-4xl">{money(cockpit.base, currency)}</p>
-                  <p className="mt-2 text-sm leading-6 text-slate-300">The value shown in Conclusion, with inactive or missing-data engines excluded from the blend.</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-300">Weighted midpoint across active methods, with inactive or missing-data engines excluded from the blend.</p>
                 </div>
                 <div className="grid grid-cols-3 gap-2 text-center text-xs">
                   <div className="rounded-md border border-white/10 bg-white/10 p-2">
@@ -1006,8 +949,9 @@ export default function Home() {
   const [peerBenchmarkStatus, setPeerBenchmarkStatus] = useState("");
   const [benchmarkAssistant, setBenchmarkAssistant] = useState<BenchmarkAssistantResult | null>(null);
   const [benchmarkAssistantStatus, setBenchmarkAssistantStatus] = useState("");
-  const [activeStageId, setActiveStageId] = useState("valuation-conclusion");
+  const [activeStageId, setActiveStageId] = useState("methods");
   const [scrollProgress, setScrollProgress] = useState(0);
+  const [autoDamodaranBenchmarkKey, setAutoDamodaranBenchmarkKey] = useState("");
 
   const validation = useMemo(() => valuationInputSchema.safeParse(input), [input]);
   const model = useMemo(() => {
@@ -1451,7 +1395,7 @@ export default function Home() {
   async function fetchBetaFromDamodaranSeed(industry = input.profile.industry) {
     setBetaStatus("Refreshing beta from Damodaran Europe snapshot...");
     try {
-      const response = await fetch(`/api/market-data/beta?industry=${encodeURIComponent(industry)}&valuationDate=${encodeURIComponent(input.profile.valuationDate)}`);
+      const response = await fetch(`/api/market-data/beta?industry=${encodeURIComponent(industry)}&pkdCode=${encodeURIComponent(input.profile.pkdCode)}&description=${encodeURIComponent(input.profile.companyName)}&valuationDate=${encodeURIComponent(input.profile.valuationDate)}`);
       const payload = await response.json() as DamodaranBetaSuggestion;
       if (!response.ok) {
         throw new Error(payload.message ?? "Damodaran beta seed fetch failed.");
@@ -1486,10 +1430,11 @@ export default function Home() {
     }
   }
 
-  async function fetchDamodaranEuropeBenchmark() {
+  async function fetchDamodaranEuropeBenchmark(industryOverride?: string) {
     setDamodaranEuropeStatus("Loading Damodaran Europe benchmark...");
     try {
-      const response = await fetch(`/api/market-data/damodaran/europe?pkdCode=${encodeURIComponent(input.profile.pkdCode)}&industry=${encodeURIComponent(input.profile.industry)}&description=${encodeURIComponent(input.profile.companyName)}`);
+      const benchmarkIndustry = industryOverride ?? marketMultipleSource.damodaranIndustry ?? input.profile.industry;
+      const response = await fetch(`/api/market-data/damodaran/europe?pkdCode=${encodeURIComponent(input.profile.pkdCode)}&industry=${encodeURIComponent(benchmarkIndustry)}&description=${encodeURIComponent(input.profile.companyName)}`);
       const payload = await response.json() as DamodaranEuropeBenchmark;
       if (!response.ok || payload.status !== "ready" || !payload.industry) {
         throw new Error(payload.rationale || "Damodaran Europe benchmark is unavailable for this industry.");
@@ -1536,7 +1481,7 @@ export default function Home() {
           cashAdjustedBeta: payload.industry.cashAdjustedUnleveredBeta,
           totalUnleveredBeta: payload.industry.totalUnleveredBeta ?? null,
           costOfCapitalLocal: payload.industry.costOfCapitalLocal ?? null,
-          appIndustry: input.profile.industry,
+          appIndustry: benchmarkIndustry,
           damodaranIndustry: payload.damodaranIndustry,
           source: payload.source,
           sourceUrl: payload.sourceUrl,
@@ -2241,21 +2186,12 @@ export default function Home() {
         ? "warning"
         : "complete";
   const workbenchSections: WorkflowSectionItem[] = [
-    { id: "valuation-conclusion", label: "Conclusion", status: model.diagnostics.criticalCount > 0 ? "warning" : "complete" },
+    { id: "methods", label: "Models", status: model.valuationReport.marketValuation.diagnostics.length > 0 ? "warning" : "complete" },
     { id: "evidence-quality", label: "Evidence", status: sourceReadinessScore >= 80 ? "complete" : "warning" },
-    { id: "methods", label: "Methods", status: model.valuationReport.marketValuation.diagnostics.length > 0 ? "warning" : "complete" },
     { id: "assumptions", label: "Assumptions", status: assumptionsStatus },
     { id: "risk", label: "Risk", status: workflowSections[8].status },
     { id: "export", label: "Export", status: workflowSections[9].status },
   ];
-  const diagnosticPenalty = model.diagnostics.criticalCount * 20 + model.diagnostics.warningCount * 5;
-  const valuationConfidenceScore = Math.max(20, Math.min(95, sourceReadinessScore + (model.diagnostics.criticalCount === 0 ? 10 : 0) - diagnosticPenalty));
-  const decisionHeadline = model.diagnostics.criticalCount > 0
-    ? "Use as a working draft until critical diagnostics are resolved."
-    : valuationConfidenceScore >= 80
-      ? "Ready for internal review, with assumptions still available for professional tuning."
-      : "Good screening output, but source support and assumptions should be reviewed before relying on it.";
-
   useEffect(() => {
     const updateStageProgress = () => {
       const scrollTop = window.scrollY;
@@ -2265,7 +2201,7 @@ export default function Home() {
       const activeSection = workbenchSections
         .map((section) => ({ id: section.id, top: document.getElementById(section.id)?.getBoundingClientRect().top ?? Number.POSITIVE_INFINITY }))
         .filter((section) => Number.isFinite(section.top))
-        .reduce((current, section) => (section.top <= 170 && section.top > current.top ? section : current), { id: workbenchSections[0]?.id ?? "valuation-conclusion", top: Number.NEGATIVE_INFINITY });
+        .reduce((current, section) => (section.top <= 170 && section.top > current.top ? section : current), { id: workbenchSections[0]?.id ?? "methods", top: Number.NEGATIVE_INFINITY });
 
       if (activeSection.id !== activeStageId) {
         setActiveStageId(activeSection.id);
@@ -2280,6 +2216,20 @@ export default function Home() {
       window.removeEventListener("resize", updateStageProgress);
     };
   }, [activeStageId, workbenchSections]);
+
+  useEffect(() => {
+    if (!workspaceStarted || !input.profile.pkdCode || input.marketMultiples.source.approvalStatus === "approved") {
+      return;
+    }
+
+    const benchmarkKey = `${input.profile.pkdCode}|${input.profile.industry}|${input.profile.companyName}`;
+    if (autoDamodaranBenchmarkKey === benchmarkKey) {
+      return;
+    }
+
+    setAutoDamodaranBenchmarkKey(benchmarkKey);
+    void fetchDamodaranEuropeBenchmark();
+  }, [autoDamodaranBenchmarkKey, input.marketMultiples.source.approvalStatus, input.profile.companyName, input.profile.industry, input.profile.pkdCode, workspaceStarted]);
 
   if (!workspaceStarted) {
     return (
@@ -2431,14 +2381,15 @@ export default function Home() {
         <WorkflowNav sections={workbenchSections} />
         {mode === "professional" ? <StageScrollRail sections={workbenchSections} activeId={activeStageId} progress={scrollProgress} /> : null}
 
-        <div id="valuation-conclusion" className="scroll-mt-28">
-          <ValuationRangePanel
+        <div id="methods" className="scroll-mt-28">
+          <EngineCockpit
+            cockpit={model.engineCockpit}
             currency={input.profile.currency}
-            low={model.engineCockpit.low}
-            base={model.engineCockpit.base}
-            high={model.engineCockpit.high}
-            confidenceScore={valuationConfidenceScore}
-            readinessHeadline={decisionHeadline}
+            selectedEngineId={selectedEngineId}
+            onSelectEngine={setSelectedEngineId}
+            onCloseSourceDrawer={() => setSelectedEngineId(null)}
+            onFetchComparablePeers={fetchComparableCompanyPeers}
+            peerBenchmarkStatus={peerBenchmarkStatus}
           />
         </div>
         <div id="evidence-quality" className="scroll-mt-28">
@@ -2470,18 +2421,6 @@ export default function Home() {
 
         {mode === "simple" ? null : (
           <>
-
-        <div id="methods" className="scroll-mt-28">
-          <EngineCockpit
-            cockpit={model.engineCockpit}
-            currency={input.profile.currency}
-            selectedEngineId={selectedEngineId}
-            onSelectEngine={setSelectedEngineId}
-            onCloseSourceDrawer={() => setSelectedEngineId(null)}
-            onFetchComparablePeers={fetchComparableCompanyPeers}
-            peerBenchmarkStatus={peerBenchmarkStatus}
-          />
-        </div>
 
         {!validation.success && (
           <Card className="border-amber-300 bg-amber-50">
@@ -3023,10 +2962,24 @@ export default function Home() {
               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div>
                   <p className="text-sm font-bold text-blue-950">Damodaran Europe benchmark</p>
-                  <p className="mt-1 text-sm leading-6 text-blue-900">Use the 2026 Europe sector dataset for beta, WACC context, EV/EBITDA and EV/Sales. Values remain draft until approved.</p>
+                  <p className="mt-1 text-sm leading-6 text-blue-900">Uses the full 2026 Europe sector dataset ({damodaranEuropeIndustryNames.length} industries) for beta, WACC context, EV/EBITDA and EV/Sales. PKD from KRS is matched automatically; manual changes remain draft until approved.</p>
                   {damodaranEuropeStatus ? <p className="mt-2 text-xs font-semibold text-blue-800">{damodaranEuropeStatus}</p> : null}
                 </div>
-                <button className="rounded-md bg-blue-900 px-4 py-2 text-sm font-bold text-white transition hover:bg-blue-800" onClick={fetchDamodaranEuropeBenchmark}>Use Damodaran Europe benchmark</button>
+                <div className="grid gap-2 sm:min-w-[320px]">
+                  <select
+                    className="flex h-10 w-full rounded-md border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-slate-950 shadow-sm focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    value={marketMultipleSource.damodaranIndustry ?? damodaranEuropeBenchmark?.damodaranIndustry ?? ""}
+                    onChange={(event) => {
+                      const nextIndustry = event.target.value;
+                      updateMarketMultipleSource("damodaranIndustry", nextIndustry);
+                      void fetchDamodaranEuropeBenchmark(nextIndustry);
+                    }}
+                  >
+                    <option value="">Auto-match from PKD</option>
+                    {damodaranEuropeIndustryNames.map((industryName) => <option key={industryName} value={industryName}>{industryName}</option>)}
+                  </select>
+                  <button className="rounded-md bg-blue-900 px-4 py-2 text-sm font-bold text-white transition hover:bg-blue-800" onClick={() => fetchDamodaranEuropeBenchmark()}>Use Damodaran Europe benchmark</button>
+                </div>
               </div>
               <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
                 <div className="rounded-md border border-blue-100 bg-white p-3">

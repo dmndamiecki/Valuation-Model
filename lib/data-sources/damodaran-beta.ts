@@ -44,8 +44,13 @@ export function getDamodaranBetaRefreshWarning(sourceDate: string, valuationDate
     : undefined;
 }
 
-export function getDamodaranBetaSuggestion(industry: string, valuationDateOrToday = new Date().toISOString()): DamodaranBetaSuggestion {
-  const benchmark = getDamodaranEuropeBenchmark({ appIndustry: industry });
+export function getDamodaranBetaSuggestion(params: string | { industry?: string; pkdCode?: string; description?: string }, valuationDateOrToday = new Date().toISOString()): DamodaranBetaSuggestion {
+  const industry = typeof params === "string" ? params : params.industry ?? "";
+  const benchmark = getDamodaranEuropeBenchmark(typeof params === "string" ? { appIndustry: industry } : {
+    appIndustry: industry,
+    pkdCode: params.pkdCode,
+    description: params.description,
+  });
   const datasetAgeDays = calculateDatasetAgeDays(benchmark.sourceDate, valuationDateOrToday);
   const warning = getDamodaranBetaRefreshWarning(benchmark.sourceDate, valuationDateOrToday);
 
