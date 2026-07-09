@@ -21,6 +21,7 @@ import { createDamodaranManualSeedSnapshot } from "@/lib/data-sources/damodaran"
 import type { DamodaranBetaSuggestion } from "@/lib/data-sources/damodaran-beta";
 import type { DamodaranErpSuggestion } from "@/lib/data-sources/damodaran-erp";
 import { getDamodaranEuropeIndustryNames, type DamodaranEuropeBenchmark } from "@/lib/data-sources/damodaran-europe";
+import { getFinancialCraftLiquidityBenchmark } from "@/lib/data-sources/financialcraft-liquidity";
 import { createFredManualSeedSnapshot, type FredRiskFreeRateResult } from "@/lib/data-sources/fred";
 import { cleanBizRaportKrs, isKrs, isNip } from "@/lib/data-sources/identifiers";
 import { getCompanyDataSources, getMarketDataSources } from "@/lib/data-sources/mapping";
@@ -186,33 +187,22 @@ function StageScrollRail({
   activeId: string;
   progress: number;
 }) {
-  const activeSection = sections.find((section) => section.id === activeId) ?? sections[0];
-
   return (
-    <aside aria-label="Current workbench stage" className="group fixed right-2 top-1/2 z-30 hidden w-14 -translate-y-1/2 transition-all duration-200 hover:w-44 xl:block">
-      <div className="overflow-hidden rounded-2xl border border-teal-100 bg-white/86 p-2 shadow-[0_18px_46px_rgba(15,23,42,0.13)] backdrop-blur">
-        <div className="mb-3 rounded-xl bg-gradient-to-br from-teal-50 to-emerald-50 p-2">
-          <p className="text-center text-[0.58rem] font-bold uppercase tracking-[0.12em] text-teal-700 group-hover:text-left">Stage</p>
-          <p className="mt-1 hidden truncate text-sm font-bold leading-5 text-slate-950 group-hover:block">{activeSection?.label ?? "Methods"}</p>
-          <p className="mt-1 text-center text-xs font-bold text-slate-950 group-hover:hidden">{activeSection?.label?.slice(0, 3) ?? "Met"}</p>
-        </div>
+    <aside aria-label="Current workbench stage" className="fixed right-3 top-1/2 z-30 hidden w-8 -translate-y-1/2 xl:block">
+      <div className="rounded-full border border-teal-100 bg-white/82 px-1.5 py-3 shadow-[0_12px_34px_rgba(15,23,42,0.12)] backdrop-blur">
         <div className="relative">
-          <div className="absolute bottom-2 left-[18px] top-2 w-1 rounded-full bg-slate-100 group-hover:left-[9px]" />
-          <div className="absolute left-[18px] top-2 w-1 rounded-full bg-gradient-to-b from-teal-500 via-emerald-400 to-blue-400 transition-all duration-300 group-hover:left-[9px]" style={{ height: `${Math.max(progress, 4)}%` }} />
-          <div className="space-y-2">
+          <div className="absolute bottom-2 left-1/2 top-2 w-0.5 -translate-x-1/2 rounded-full bg-slate-100" />
+          <div className="absolute left-1/2 top-2 w-0.5 -translate-x-1/2 rounded-full bg-gradient-to-b from-teal-500 via-emerald-400 to-blue-400 transition-all duration-300" style={{ height: `${Math.max(progress, 4)}%` }} />
+          <div className="space-y-3">
             {sections.map((section) => {
               const active = section.id === activeId;
               return (
-                <a key={section.id} href={`#${section.id}`} title={section.label} className="relative flex min-w-0 items-center gap-3 rounded-lg px-2 py-1.5 transition hover:bg-teal-50">
-                  <span className={`relative z-10 h-5 w-5 shrink-0 rounded-full border-2 transition ${active ? "border-teal-700 bg-teal-600 shadow-[0_0_0_5px_rgba(20,184,166,0.15)]" : "border-white bg-slate-300 group-hover:bg-teal-300"}`} />
-                  <span className={`hidden truncate text-xs font-bold transition group-hover:block ${active ? "text-teal-900" : "text-slate-500"}`}>{section.label}</span>
+                <a key={section.id} href={`#${section.id}`} title={section.label} aria-label={section.label} className="relative flex h-5 items-center justify-center">
+                  <span className={`relative z-10 h-3.5 w-3.5 rounded-full border-2 transition hover:scale-110 ${active ? "border-white bg-teal-700 shadow-[0_0_0_5px_rgba(20,184,166,0.18)]" : "border-white bg-slate-300 hover:bg-teal-300"}`} />
                 </a>
               );
             })}
           </div>
-        </div>
-        <div className="mt-3 rounded-full bg-slate-100 p-1">
-          <div className="h-1.5 rounded-full bg-gradient-to-r from-teal-600 to-emerald-400 transition-all duration-300" style={{ width: `${progress}%` }} />
         </div>
       </div>
     </aside>
@@ -899,16 +889,63 @@ function OutputRow({ label, value, emphasis = false }: { label: string; value: s
   );
 }
 
+function formatInputNumber(value: number, percent = false): string {
+  const displayValue = percent ? value * 100 : value;
+  if (!Number.isFinite(displayValue)) {
+    return "";
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 2,
+    useGrouping: true,
+  }).format(displayValue);
+}
+
+function parseInputNumber(value: string): number {
+  const trimmed = value.trim().replace(/\s/g, "");
+  const commaCount = (trimmed.match(/,/g) ?? []).length;
+  const hasComma = commaCount > 0;
+  const hasDot = trimmed.includes(".");
+  const normalized = hasComma && !hasDot && commaCount === 1
+    ? trimmed.replace(",", ".")
+    : trimmed.replaceAll(",", "");
+  return asNumber(normalized);
+}
+
+function NumericInput({ value, onChange, percent = false }: { value: number; onChange: (value: number) => void; percent?: boolean }) {
+  const [displayValue, setDisplayValue] = useState(() => formatInputNumber(value, percent));
+  const [focused, setFocused] = useState(false);
+
+  useEffect(() => {
+    if (!focused) {
+      setDisplayValue(formatInputNumber(value, percent));
+    }
+  }, [focused, percent, value]);
+
+  return (
+    <Input
+      type="text"
+      inputMode="decimal"
+      value={displayValue}
+      onFocus={() => setFocused(true)}
+      onBlur={() => {
+        setFocused(false);
+        setDisplayValue(formatInputNumber(value, percent));
+      }}
+      onChange={(event) => {
+        const nextDisplayValue = event.target.value;
+        setDisplayValue(nextDisplayValue);
+        onChange(percent ? parseInputNumber(nextDisplayValue) / 100 : parseInputNumber(nextDisplayValue));
+      }}
+    />
+  );
+}
+
 function NumberField({ label, value, onChange, percent = false }: { label: string; value: number; onChange: (value: number) => void; percent?: boolean }) {
   return (
     <div className="space-y-1.5">
       <Label>{label}</Label>
-      <Input
-        type="number"
-        step={percent ? "0.1" : "1"}
-        value={percent ? +(value * 100).toFixed(2) : +value.toFixed(2)}
-        onChange={(event) => onChange(percent ? asNumber(event.target.value) / 100 : asNumber(event.target.value))}
-      />
+      <NumericInput value={value} percent={percent} onChange={onChange} />
     </div>
   );
 }
@@ -952,6 +989,7 @@ export default function Home() {
   const [activeStageId, setActiveStageId] = useState("methods");
   const [scrollProgress, setScrollProgress] = useState(0);
   const [autoDamodaranBenchmarkKey, setAutoDamodaranBenchmarkKey] = useState("");
+  const [dlomManuallyEdited, setDlomManuallyEdited] = useState(false);
 
   const validation = useMemo(() => valuationInputSchema.safeParse(input), [input]);
   const model = useMemo(() => {
@@ -975,6 +1013,7 @@ export default function Home() {
     const engineCockpit = runValuationEngines(input, peerBenchmarks);
     return { forecastYears, wacc, dcf, bridge, discounts, executiveSummary, terminalBreakdown, evToEquityBridge, privateCompanyAdjustmentBridge, warnings, scenarioAnalysis, diagnostics, waccCases, growthCases, sensitivity, valuationReport, engineCockpit };
   }, [input, peerBenchmarks]);
+  const financialCraftLiquidityBenchmark = useMemo(() => getFinancialCraftLiquidityBenchmark(Math.max(model.bridge.equityValue, 0)), [model.bridge.equityValue]);
 
   function update(path: ScalarPath, value: string | number) {
     setInput((current) => ({
@@ -1021,6 +1060,18 @@ export default function Home() {
           ...current.marketMultiples.source,
           approvalStatus: "draft",
         },
+      },
+    }));
+  }
+
+  function applyFinancialCraftDlomBenchmark() {
+    setDlomManuallyEdited(false);
+    setInput((current) => ({
+      ...current,
+      discounts: {
+        ...current.discounts,
+        lackOfMarketability: financialCraftLiquidityBenchmark.lackOfMarketabilityDiscount,
+        lackOfMarketabilitySource: "financialCraftBenchmark",
       },
     }));
   }
@@ -1877,6 +1928,7 @@ export default function Home() {
   }
 
   function startValuation() {
+    setDlomManuallyEdited(false);
     if (wizardImportApplied && companyData?.years.length) {
       setMode(wizardInput.valuationType);
       setWorkspaceStarted(true);
@@ -1978,6 +2030,7 @@ export default function Home() {
     setBetaSource(null);
     setBetaStatus("");
     setBetaManuallyEdited(false);
+    setDlomManuallyEdited(false);
     setWizardStep(1);
     setMode("simple");
     setWorkspaceStarted(false);
@@ -2028,21 +2081,21 @@ export default function Home() {
     }));
   }
 
-  function updateForecastArray(key: PercentArrayKey, index: number, value: number) {
+  function updateForecastConstant(key: PercentArrayKey, value: number) {
     setInput((current) => ({
       ...current,
       forecast: {
         ...current.forecast,
-        [key]: current.forecast[key].map((item, itemIndex) => (itemIndex === index ? value : item)),
+        [key]: current.forecast[key].map(() => value),
       },
     }));
   }
 
-  function updateWorkingCapital(index: number, value: number) {
+  function updateWorkingCapitalConstant(value: number) {
     setInput((current) => ({
       ...current,
       workingCapital: {
-        nwcPctRevenue: current.workingCapital.nwcPctRevenue.map((item, itemIndex) => (itemIndex === index ? value : item)),
+        nwcPctRevenue: current.workingCapital.nwcPctRevenue.map(() => value),
       },
     }));
   }
@@ -2148,6 +2201,8 @@ export default function Home() {
   ];
   const marketMultipleIntelligence = assessMarketMultipleIntelligence(input, peerBenchmarks);
   const marketMultipleSource = input.marketMultiples.source;
+  const activeDamodaranIndustry = damodaranEuropeBenchmark?.damodaranIndustry ?? marketMultipleSource.damodaranIndustry ?? betaSource?.damodaranIndustry ?? "";
+  const activeDamodaranConfidence = damodaranEuropeBenchmark?.confidence ?? marketMultipleSource.confidence ?? betaSource?.confidence ?? "low";
   const dataReadinessItems: DataReadinessItem[] = [
     {
       label: "KRS registry",
@@ -2160,9 +2215,9 @@ export default function Home() {
       detail: companyData?.years.length ? `${companyData.years.length} imported financial period(s) are mapped into historicals.` : "No BizRaport financial years are connected.",
     },
     {
-      label: "PKD template",
-      status: activePkdSuggestion ? "connected" : input.profile.industry ? "partial" : "manual",
-      detail: activePkdSuggestion ? `${activePkdSuggestion.industryTemplateName} applied from PKD ${activePkdSuggestion.division}.` : "Industry can be selected manually when PKD mapping is unavailable.",
+      label: "Damodaran sector",
+      status: activeDamodaranIndustry ? "connected" : input.profile.pkdCode ? "partial" : "manual",
+      detail: activeDamodaranIndustry ? `${activeDamodaranIndustry} matched from PKD / benchmark evidence.` : input.profile.pkdCode ? "PKD is present; Damodaran benchmark will auto-match from the 97-industry dataset." : "No PKD-driven Damodaran sector connected yet.",
     },
     {
       label: "Forecast seed",
@@ -2230,6 +2285,26 @@ export default function Home() {
     setAutoDamodaranBenchmarkKey(benchmarkKey);
     void fetchDamodaranEuropeBenchmark();
   }, [autoDamodaranBenchmarkKey, input.marketMultiples.source.approvalStatus, input.profile.companyName, input.profile.industry, input.profile.pkdCode, workspaceStarted]);
+
+  useEffect(() => {
+    if (!workspaceStarted || dlomManuallyEdited || !input.discounts.lackOfMarketabilitySource || input.discounts.lackOfMarketabilitySource === "manual") {
+      return;
+    }
+
+    const benchmarkDlom = financialCraftLiquidityBenchmark.lackOfMarketabilityDiscount;
+    if (Math.abs(input.discounts.lackOfMarketability - benchmarkDlom) < 0.0001) {
+      return;
+    }
+
+    setInput((current) => ({
+      ...current,
+      discounts: {
+        ...current.discounts,
+        lackOfMarketability: benchmarkDlom,
+        lackOfMarketabilitySource: "financialCraftBenchmark",
+      },
+    }));
+  }, [dlomManuallyEdited, financialCraftLiquidityBenchmark.lackOfMarketabilityDiscount, input.discounts.lackOfMarketability, input.discounts.lackOfMarketabilitySource, workspaceStarted]);
 
   if (!workspaceStarted) {
     return (
@@ -2467,10 +2542,21 @@ export default function Home() {
             </CardContent>
           </Card>
           <Card>
-            <CardHeader><CardTitle>Industry Classification</CardTitle><CardDescription>PKD-driven classification and private-company assumptions. Market beta, ERP and sector multiples are consolidated in Market Data Sources.</CardDescription></CardHeader>
+            <CardHeader><CardTitle>Industry Classification</CardTitle><CardDescription>Import KRS/BizRaport data and the app matches PKD to the closest Damodaran Europe sector automatically. Manual selection is only a fallback.</CardDescription></CardHeader>
             <CardContent className="space-y-4">
               <PkdSuggestionPanel suggestion={activePkdSuggestion} />
-              <div className="space-y-1.5"><Label>Industry template selector</Label><select className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 shadow-sm focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-100" value={professionalIndustryTemplate?.name ?? ""} onChange={(event) => event.target.value ? applyTemplateToInput(event.target.value) : update(["profile", "industry"], "")}><option value="">Select template</option>{industryTemplates.map((template) => <option key={template.name} value={template.name}>{template.name}</option>)}</select><p className="text-xs text-slate-500">Selecting a template updates classification, DLOM, and optional tax defaults. WACC and multiples keep their own source trail.</p></div>
+              <div className="rounded-lg border border-teal-200 bg-teal-50 px-4 py-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-bold text-teal-950">{activeDamodaranIndustry ? activeDamodaranIndustry : "Waiting for PKD to auto-match sector"}</p>
+                    <p className="mt-1 text-xs leading-5 text-teal-900">
+                      {activeDamodaranIndustry ? `Matched automatically from the ${damodaranEuropeIndustryNames.length}-industry Damodaran Europe dataset.` : `After KRS/BizRaport import, PKD is matched against ${damodaranEuropeIndustryNames.length} Damodaran Europe industries.`}
+                    </p>
+                  </div>
+                  <Badge className={activeDamodaranIndustry ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"}>{activeDamodaranIndustry ? activeDamodaranConfidence : "auto"}</Badge>
+                </div>
+              </div>
+              <div className="space-y-1.5"><Label>Manual fallback template</Label><select className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 shadow-sm focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-100" value={professionalIndustryTemplate?.name ?? ""} onChange={(event) => event.target.value ? applyTemplateToInput(event.target.value) : update(["profile", "industry"], "")}><option value="">Use automatic PKD match</option>{industryTemplates.map((template) => <option key={template.name} value={template.name}>{template.name}</option>)}</select><p className="text-xs text-slate-500">Use only when PKD is missing or the business is clearly better represented by another broad SME template.</p></div>
               {professionalIndustryTemplate ? <TemplateAssumptionTable template={professionalIndustryTemplate} /> : <p className="text-sm text-slate-500">Select an industry template to review classification, DLOM, and tax defaults.</p>}
             </CardContent>
           </Card>
@@ -2532,7 +2618,7 @@ export default function Home() {
                   <tr key={year.year} className="border-b border-slate-100">
                     <td className="py-3 font-semibold">{year.year}</td>
                     {(["revenue", "ebitda", "depreciation", "capex", "netWorkingCapital"] as const).map((key) => (
-                      <td key={key} className="pr-3"><Input type="number" value={year[key]} onChange={(e) => updateHistorical(index, key, asNumber(e.target.value))} /></td>
+                      <td key={key} className="pr-3"><NumericInput value={year[key]} onChange={(value) => updateHistorical(index, key, value)} /></td>
                     ))}
                     <td className="font-semibold text-teal-700">{pct(year.ebitda / year.revenue)}</td>
                   </tr>
@@ -2565,24 +2651,38 @@ export default function Home() {
           <Card>
             <CardHeader>
               <CardTitle>Forecast Assumptions for 5 Years</CardTitle>
-              <CardDescription>FCFF formula: revenue × normalized EBITDA margin - cash taxes + D&A - capex - change in net working capital.</CardDescription>
+              <CardDescription>FCFF formula: revenue x normalized EBITDA margin - cash taxes + D&A - capex - change in net working capital.</CardDescription>
               <div className="mt-3 flex flex-wrap items-center gap-3"><button className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={generateForecastFromHistoricalInputs}>Generate forecast from historicals</button>{forecastAutoSeeded ? <Badge className="border-teal-200 bg-teal-50 text-teal-800">Auto-generated from historical financials</Badge> : null}</div>
               {forecastSeedNotes.map((note) => <p key={note} className="mt-2 text-xs text-slate-500">{note}</p>)}
             </CardHeader>
-            <CardContent className="max-w-full overflow-x-auto">
-              <table className="w-full min-w-[720px] text-sm">
-                <thead><tr className="border-b text-left text-xs uppercase text-slate-500"><th className="py-2">Assumption</th>{model.forecastYears.map((y) => <th key={y.year}>{y.year}</th>)}</tr></thead>
-                <tbody>
-                  {[
-                    ["Revenue growth", "revenueGrowth"],
-                    ["Base EBITDA margin", "ebitdaMargin"],
-                    ["D&A / revenue", "depreciationPctRevenue"],
-                    ["Capex / revenue", "capexPctRevenue"],
-                  ].map(([label, key]) => (
-                    <tr key={key} className="border-b border-slate-100"><td className="py-3 font-medium">{label}{forecastAutoSeeded ? <span className="mt-1 block text-xs font-normal text-slate-500">Generated from historical financial statements</span> : null}</td>{input.forecast[key as PercentArrayKey].map((value, index) => <td key={index} className="pr-2"><NumberField label="" value={value} percent onChange={(next) => updateForecastArray(key as PercentArrayKey, index, next)} /></td>)}</tr>
-                  ))}
-                </tbody>
-              </table>
+            <CardContent className="space-y-5">
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <NumberField label="Revenue growth" value={input.forecast.revenueGrowth[0]} percent onChange={(next) => updateForecastConstant("revenueGrowth", next)} />
+                <NumberField label="Base EBITDA margin" value={input.forecast.ebitdaMargin[0]} percent onChange={(next) => updateForecastConstant("ebitdaMargin", next)} />
+                <NumberField label="D&A / revenue" value={input.forecast.depreciationPctRevenue[0]} percent onChange={(next) => updateForecastConstant("depreciationPctRevenue", next)} />
+                <NumberField label="Capex / revenue" value={input.forecast.capexPctRevenue[0]} percent onChange={(next) => updateForecastConstant("capexPctRevenue", next)} />
+              </div>
+              <p className="text-xs leading-5 text-slate-500">
+                These assumptions are held constant across the 5-year forecast. Charts and support tables below still show the full yearly projection.
+              </p>
+              <div className="max-w-full overflow-x-auto rounded-lg border border-slate-200 bg-slate-50">
+                <table className="w-full min-w-[720px] text-xs">
+                  <thead><tr className="border-b text-left uppercase tracking-wide text-slate-500"><th className="p-3">Assumption</th>{model.forecastYears.map((y) => <th key={y.year} className="p-3 text-right">{y.year}</th>)}</tr></thead>
+                  <tbody>
+                    {[
+                      ["Revenue growth", input.forecast.revenueGrowth],
+                      ["Base EBITDA margin", input.forecast.ebitdaMargin],
+                      ["D&A / revenue", input.forecast.depreciationPctRevenue],
+                      ["Capex / revenue", input.forecast.capexPctRevenue],
+                    ].map(([label, values]) => (
+                      <tr key={label as string} className="border-b border-slate-100">
+                        <td className="p-3 font-semibold text-slate-700">{label as string}</td>
+                        {(values as number[]).map((value, index) => <td key={index} className="p-3 text-right font-semibold text-slate-900">{pct(value)}</td>)}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
               <div className="mt-4 max-w-xs"><NumberField label="Tax rate" value={input.forecast.taxRate} percent onChange={(value) => update(["forecast", "taxRate"], value)} /></div>
             </CardContent>
           </Card>
@@ -2593,13 +2693,20 @@ export default function Home() {
               <CardDescription>NWC is modeled as a percentage of revenue; cash flow impact is the period-over-period change.</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-3 sm:grid-cols-5">
-                {input.workingCapital.nwcPctRevenue.map((value, index) => <NumberField key={index} label={`${model.forecastYears[index].year}`} value={value} percent onChange={(next) => updateWorkingCapital(index, next)} />)}
+              <div className="max-w-sm">
+                <NumberField label="NWC / revenue" value={input.workingCapital.nwcPctRevenue[0]} percent onChange={updateWorkingCapitalConstant} />
               </div>
               {forecastAutoSeeded ? <p className="mt-3 text-xs text-slate-500">NWC / revenue source: Generated from historical financial statements.</p> : null}
+              <div className="mt-4 flex flex-wrap gap-2 text-xs">
+                {model.forecastYears.map((year, index) => (
+                  <span key={year.year} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 font-semibold text-slate-700">
+                    {year.year}: {pct(input.workingCapital.nwcPctRevenue[index])}
+                  </span>
+                ))}
+              </div>
               <div className="chart-frame mt-6">
                 <ResponsiveContainer width="100%" height={240}>
-                  <AreaChart data={model.forecastYears}><CartesianGrid stroke={chartGridColor} strokeDasharray="3 3" /><XAxis dataKey="year" tick={chartAxisStyle} tickLine={false} axisLine={{ stroke: chartGridColor }} /><YAxis tick={chartAxisStyle} tickLine={false} axisLine={{ stroke: chartGridColor }} /><Tooltip contentStyle={chartTooltipStyle} formatter={(value) => chartMoney(value, input.profile.currency)} /><Area dataKey="freeCashFlow" name="Free Cash Flow" fill="#0f766e" stroke="#0f766e" fillOpacity={0.18} /></AreaChart>
+                  <BarChart data={model.forecastYears}><CartesianGrid stroke={chartGridColor} strokeDasharray="3 3" /><XAxis dataKey="year" tick={chartAxisStyle} tickLine={false} axisLine={{ stroke: chartGridColor }} /><YAxis tick={chartAxisStyle} tickLine={false} axisLine={{ stroke: chartGridColor }} /><Tooltip contentStyle={chartTooltipStyle} formatter={(value) => chartMoney(value, input.profile.currency)} /><Legend /><Bar dataKey="netWorkingCapital" name="Projected NWC" fill="#0f766e" radius={[4, 4, 0, 0]} /><Bar dataKey="changeInNwc" name="Change in NWC" fill="#38bdf8" radius={[4, 4, 0, 0]} /></BarChart>
                 </ResponsiveContainer>
               </div>
             </CardContent>
@@ -2609,7 +2716,7 @@ export default function Home() {
         <WorkflowHeader id="wacc" eyebrow="Assumptions" title="Discount Rate" description="WACC build using market inputs, private-company premia, capital structure, and tax assumptions." status={workflowSections[4].status} />
         <div className="grid gap-5">
           <Card>
-            <CardHeader><CardTitle>WACC Assumptions</CardTitle><CardDescription>Cost of equity = Rf + beta × ERP + size premium + CSRP.</CardDescription></CardHeader>
+            <CardHeader><CardTitle>WACC Assumptions</CardTitle><CardDescription>Cost of equity = Rf + beta x ERP + size premium + CSRP.</CardDescription></CardHeader>
             <CardContent className="grid gap-3">
               <NumberField label="Risk-free rate" value={input.wacc.riskFreeRate} percent onChange={(v) => { setRiskFreeRateManuallyEdited(true); update(["wacc", "riskFreeRate"], v); }} />
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm">
@@ -2696,7 +2803,7 @@ export default function Home() {
               <NumberField label="Company-specific premium" value={input.wacc.companySpecificRiskPremium} percent onChange={(v) => update(["wacc", "companySpecificRiskPremium"], v)} />
               <NumberField label="Pre-tax cost of debt" value={input.wacc.preTaxCostOfDebt} percent onChange={(v) => update(["wacc", "preTaxCostOfDebt"], v)} />
               <NumberField label="Target debt / capital" value={input.wacc.targetDebtPctCapital} percent onChange={(v) => update(["wacc", "targetDebtPctCapital"], v)} />
-              <div className="rounded-xl bg-slate-50 p-4 text-sm">WACC = {pct(model.wacc.equityWeight)} × {pct(model.wacc.costOfEquity)} + {pct(model.wacc.debtWeight)} × after-tax debt cost {pct(model.wacc.afterTaxCostOfDebt)} = <strong>{pct(model.wacc.wacc)}</strong><br />After-tax debt cost uses the forecast tax rate of {pct(input.forecast.taxRate)}.</div>
+              <div className="rounded-xl bg-slate-50 p-4 text-sm">WACC = {pct(model.wacc.equityWeight)} x {pct(model.wacc.costOfEquity)} + {pct(model.wacc.debtWeight)} x after-tax debt cost {pct(model.wacc.afterTaxCostOfDebt)} = <strong>{pct(model.wacc.wacc)}</strong><br />After-tax debt cost uses the forecast tax rate of {pct(input.forecast.taxRate)}.</div>
             </CardContent>
           </Card>
         </div>
@@ -2712,7 +2819,7 @@ export default function Home() {
                 <button className={`rounded-xl border p-3 font-semibold ${input.terminalValue.method === "gordon" ? "border-teal-600 bg-teal-50 text-teal-800" : "border-slate-200"}`} onClick={() => setInput((c) => ({ ...c, terminalValue: { ...c.terminalValue, method: "gordon" } }))}>Gordon Growth</button>
                 <button className={`rounded-xl border p-3 font-semibold ${input.terminalValue.method === "exitMultiple" ? "border-teal-600 bg-teal-50 text-teal-800" : "border-slate-200"}`} onClick={() => setInput((c) => ({ ...c, terminalValue: { ...c.terminalValue, method: "exitMultiple" } }))}>Exit Multiple</button>
               </div>
-              <div className="rounded-xl bg-slate-50 p-4 text-sm leading-6">Terminal FCFF × (1 + g) / (WACC - g) = {money(model.dcf.terminalValue.gordonTerminalValue, input.profile.currency)}<br />WACC - g spread = {pct(model.dcf.terminalValue.gordonSpread)}{!model.dcf.terminalValue.isGordonGrowthValid ? " (invalid; growth must be below WACC)" : ""}<br />Year 5 EBITDA × multiple = {money(model.dcf.terminalValue.exitMultipleTerminalValue, input.profile.currency)}</div>
+              <div className="rounded-xl bg-slate-50 p-4 text-sm leading-6">Terminal FCFF x (1 + g) / (WACC - g) = {money(model.dcf.terminalValue.gordonTerminalValue, input.profile.currency)}<br />WACC - g spread = {pct(model.dcf.terminalValue.gordonSpread)}{!model.dcf.terminalValue.isGordonGrowthValid ? " (invalid; growth must be below WACC)" : ""}<br />Year 5 EBITDA x multiple = {money(model.dcf.terminalValue.exitMultipleTerminalValue, input.profile.currency)}</div>
             </CardContent>
           </Card>
 
@@ -2732,12 +2839,38 @@ export default function Home() {
 
         <div className="grid gap-5">
           <Card>
-            <CardHeader><CardTitle>Private Company Discounts</CardTitle><CardDescription>Discounts compound multiplicatively to avoid double-counting retained value.</CardDescription></CardHeader>
+            <CardHeader><CardTitle>Private Company Discounts</CardTitle><CardDescription>DLOM is auto-benchmarked from FinancialCraft by equity-value size bucket. Other discounts remain company-specific.</CardDescription></CardHeader>
             <CardContent className="grid gap-3">
-              <NumberField label="Lack of marketability" value={input.discounts.lackOfMarketability} percent onChange={(v) => update(["discounts", "lackOfMarketability"], v)} />
+              <div className="rounded-xl border border-teal-200 bg-teal-50 p-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <p className="text-sm font-bold text-teal-950">FinancialCraft liquidity benchmark</p>
+                    <p className="mt-1 text-xs leading-5 text-teal-900">
+                      {financialCraftLiquidityBenchmark.sizeLabel}: {financialCraftLiquidityBenchmark.capitalizationRange}. 1Q2026 DLOM benchmark is <strong>{pct(financialCraftLiquidityBenchmark.lackOfMarketabilityDiscount)}</strong>.
+                    </p>
+                  </div>
+                  <Badge className={input.discounts.lackOfMarketabilitySource === "manual" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}>{input.discounts.lackOfMarketabilitySource === "manual" ? "manual override" : "auto applied"}</Badge>
+                </div>
+                {input.discounts.lackOfMarketabilitySource === "manual" ? (
+                  <button className="mt-3 rounded-md bg-teal-700 px-3 py-2 text-xs font-bold text-white transition hover:bg-teal-800" onClick={applyFinancialCraftDlomBenchmark}>
+                    Use FinancialCraft benchmark
+                  </button>
+                ) : null}
+              </div>
+              <NumberField label="Lack of marketability" value={input.discounts.lackOfMarketability} percent onChange={(v) => {
+                setDlomManuallyEdited(true);
+                setInput((current) => ({
+                  ...current,
+                  discounts: {
+                    ...current.discounts,
+                    lackOfMarketability: v,
+                    lackOfMarketabilitySource: "manual",
+                  },
+                }));
+              }} />
               <NumberField label="Key-person discount" value={input.discounts.keyPersonDiscount} percent onChange={(v) => update(["discounts", "keyPersonDiscount"], v)} />
               <NumberField label="Customer concentration discount" value={input.discounts.customerConcentrationDiscount} percent onChange={(v) => update(["discounts", "customerConcentrationDiscount"], v)} />
-              <div className="rounded-xl bg-slate-50 p-4 text-sm">Sequential equity discounts: key-person, customer concentration, then DLOM. Combined discount = 1 - Π(1 - discount) = <strong>{pct(model.discounts.combinedDiscountRate)}</strong><br />DLOM is applied only after the EV-to-equity bridge, not to enterprise value.</div>
+              <div className="rounded-xl bg-slate-50 p-4 text-sm">Sequential equity discounts: key-person, customer concentration, then DLOM. Combined discount = 1 - product of retained-value factors = <strong>{pct(model.discounts.combinedDiscountRate)}</strong><br />DLOM is applied only after the EV-to-equity bridge, not to enterprise value.</div>
             </CardContent>
           </Card>
 
@@ -2956,61 +3089,6 @@ export default function Home() {
                   ) : null}
                 </div>
               ) : null}
-            </div>
-
-            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <p className="text-sm font-bold text-blue-950">Damodaran Europe benchmark</p>
-                  <p className="mt-1 text-sm leading-6 text-blue-900">Uses the full 2026 Europe sector dataset ({damodaranEuropeIndustryNames.length} industries) for beta, WACC context, EV/EBITDA and EV/Sales. PKD from KRS is matched automatically; manual changes remain draft until approved.</p>
-                  {damodaranEuropeStatus ? <p className="mt-2 text-xs font-semibold text-blue-800">{damodaranEuropeStatus}</p> : null}
-                </div>
-                <div className="grid gap-2 sm:min-w-[320px]">
-                  <select
-                    className="flex h-10 w-full rounded-md border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-slate-950 shadow-sm focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-100"
-                    value={marketMultipleSource.damodaranIndustry ?? damodaranEuropeBenchmark?.damodaranIndustry ?? ""}
-                    onChange={(event) => {
-                      const nextIndustry = event.target.value;
-                      updateMarketMultipleSource("damodaranIndustry", nextIndustry);
-                      void fetchDamodaranEuropeBenchmark(nextIndustry);
-                    }}
-                  >
-                    <option value="">Auto-match from PKD</option>
-                    {damodaranEuropeIndustryNames.map((industryName) => <option key={industryName} value={industryName}>{industryName}</option>)}
-                  </select>
-                  <button className="rounded-md bg-blue-900 px-4 py-2 text-sm font-bold text-white transition hover:bg-blue-800" onClick={() => fetchDamodaranEuropeBenchmark()}>Use Damodaran Europe benchmark</button>
-                </div>
-              </div>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
-                <div className="rounded-md border border-blue-100 bg-white p-3">
-                  <p className="text-[0.68rem] font-bold uppercase tracking-[0.1em] text-slate-500">Industry</p>
-                  <p className="mt-1 break-words text-sm font-bold text-slate-950">{damodaranEuropeBenchmark?.damodaranIndustry ?? marketMultipleSource.damodaranIndustry ?? "Not loaded"}</p>
-                </div>
-                <div className="rounded-md border border-blue-100 bg-white p-3">
-                  <p className="text-[0.68rem] font-bold uppercase tracking-[0.1em] text-slate-500">Region</p>
-                  <p className="mt-1 text-sm font-bold text-slate-950">{damodaranEuropeBenchmark?.region ?? marketMultipleSource.region ?? "Europe"}</p>
-                </div>
-                <div className="rounded-md border border-blue-100 bg-white p-3">
-                  <p className="text-[0.68rem] font-bold uppercase tracking-[0.1em] text-slate-500">Beta</p>
-                  <p className="mt-1 text-sm font-bold text-slate-950">{damodaranEuropeBenchmark?.industry?.cashAdjustedUnleveredBeta ? damodaranEuropeBenchmark.industry.cashAdjustedUnleveredBeta.toFixed(2) : betaSource?.cashAdjustedBeta ? betaSource.cashAdjustedBeta.toFixed(2) : "N/M"}</p>
-                </div>
-                <div className="rounded-md border border-blue-100 bg-white p-3">
-                  <p className="text-[0.68rem] font-bold uppercase tracking-[0.1em] text-slate-500">Total beta</p>
-                  <p className="mt-1 text-sm font-bold text-slate-950">{damodaranEuropeBenchmark?.industry?.totalUnleveredBeta ? damodaranEuropeBenchmark.industry.totalUnleveredBeta.toFixed(2) : betaSource?.totalUnleveredBeta ? betaSource.totalUnleveredBeta.toFixed(2) : "N/M"}</p>
-                </div>
-                <div className="rounded-md border border-blue-100 bg-white p-3">
-                  <p className="text-[0.68rem] font-bold uppercase tracking-[0.1em] text-slate-500">WACC</p>
-                  <p className="mt-1 text-sm font-bold text-slate-950">{damodaranEuropeBenchmark?.industry?.costOfCapitalLocal ? pct(damodaranEuropeBenchmark.industry.costOfCapitalLocal) : betaSource?.costOfCapitalLocal ? pct(betaSource.costOfCapitalLocal) : "N/M"}</p>
-                </div>
-                <div className="rounded-md border border-blue-100 bg-white p-3">
-                  <p className="text-[0.68rem] font-bold uppercase tracking-[0.1em] text-slate-500">EV / EBITDA</p>
-                  <p className="mt-1 text-sm font-bold text-slate-950">{damodaranEuropeBenchmark?.industry?.positiveEbitdaEvEbitda ? multiple(damodaranEuropeBenchmark.industry.positiveEbitdaEvEbitda) : multiple(input.marketMultiples.evEbitdaMultiple)}</p>
-                </div>
-                <div className="rounded-md border border-blue-100 bg-white p-3">
-                  <p className="text-[0.68rem] font-bold uppercase tracking-[0.1em] text-slate-500">EV / Sales</p>
-                  <p className="mt-1 text-sm font-bold text-slate-950">{damodaranEuropeBenchmark?.industry?.evSales ? multiple(damodaranEuropeBenchmark.industry.evSales) : multiple(input.marketMultiples.evRevenueMultiple)}</p>
-                </div>
-              </div>
             </div>
 
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(280px,0.9fr)]">
