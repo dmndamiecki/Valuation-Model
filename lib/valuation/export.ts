@@ -17,6 +17,7 @@ import { calculateScenarioAnalysis, type ScenarioAnalysisResult } from "./scenar
 import { buildCenteredSensitivityCases, buildSensitivityTable, type SensitivityCell } from "./sensitivity";
 import type { CompanyProfile, ValuationInput } from "./types";
 import { calculateWacc, type WaccResult } from "./wacc";
+import { getFinancialCraftLiquidityBenchmark } from "../data-sources/financialcraft-liquidity";
 
 export type NormalizedEbitdaBridge = {
   reportedEbitda: number;
@@ -161,6 +162,11 @@ function buildFootballField(
 }
 
 function buildAssumptionsBook(input: ValuationInput, terminalValueBreakdown: TerminalValueBreakdown): AssumptionsBookItem[] {
+  const liquidityBenchmark = getFinancialCraftLiquidityBenchmark(Math.max(calculateEquityBridge(calculateDcf(forecastFinancials(input.historicals, input.forecast, input.workingCapital, input.normalizationAdjustments), calculateWacc({ ...input.wacc, taxRate: input.forecast.taxRate }).wacc, input.terminalValue).enterpriseValue, input.bridge).equityValue, 0));
+  const dlomRationale = input.discounts.lackOfMarketabilitySource === "manual"
+    ? `Manual DLOM override. FinancialCraft ${liquidityBenchmark.sourcePeriod} benchmark for ${liquidityBenchmark.sizeLabel} (${liquidityBenchmark.capitalizationRange}) is ${safePercent(liquidityBenchmark.lackOfMarketabilityDiscount)}; document why the selected ${safePercent(input.discounts.lackOfMarketability)} assumption differs. Source: ${liquidityBenchmark.sourceUrl}`
+    : `FinancialCraft ${liquidityBenchmark.sourcePeriod} lack-of-marketability benchmark for ${liquidityBenchmark.sizeLabel} (${liquidityBenchmark.capitalizationRange}) is ${safePercent(liquidityBenchmark.lackOfMarketabilityDiscount)}. Source: ${liquidityBenchmark.sourceUrl}`;
+
   return [
     { section: "Company", assumption: "Valuation date", value: input.profile.valuationDate, source: "user_input", rationale: "Controls historical period labels, market-data freshness, and export timestamp context." },
     { section: "Company", assumption: "Industry", value: input.profile.industry, source: "user_input", rationale: "Used for template selection, beta context, and market comparability." },
@@ -178,7 +184,7 @@ function buildAssumptionsBook(input: ValuationInput, terminalValueBreakdown: Ter
     { section: "Terminal value", assumption: "Implied perpetual growth from exit multiple", value: safePercent(terminalValueBreakdown.impliedPerpetualGrowthFromExitMultiple), source: "model_calculation", rationale: "Cross-checks exit-multiple output against long-term growth logic." },
     { section: "Bridge", assumption: "Cash", value: input.bridge.cash, source: "user_input", rationale: "Cash-like item added from EV to equity value." },
     { section: "Bridge", assumption: "Debt and debt-like items", value: input.bridge.debt + input.bridge.leasing + input.bridge.otherDebtLikeItems, source: "user_input", rationale: "Debt-like items deducted from enterprise value." },
-    { section: "Discounts", assumption: "DLOM", value: safePercent(input.discounts.lackOfMarketability), source: "user_input", rationale: "Equity-level discount for lack of marketability." },
+    { section: "Discounts", assumption: "DLOM", value: safePercent(input.discounts.lackOfMarketability), source: input.discounts.lackOfMarketabilitySource === "manual" ? "user_input" : "template_or_import", rationale: dlomRationale },
     { section: "Market approach", assumption: "Benchmark EV/EBITDA", value: safeMultiple(input.marketMultiples.evEbitdaMultiple), source: "user_input", rationale: input.marketMultiples.source.rationale },
     { section: "Market approach", assumption: "Benchmark EV/Revenue", value: safeMultiple(input.marketMultiples.evRevenueMultiple), source: "user_input", rationale: `${input.marketMultiples.source.label}; approval status: ${input.marketMultiples.source.approvalStatus}; confidence: ${input.marketMultiples.source.confidence}.` },
     { section: "Market approach", assumption: "Multiple source date", value: input.marketMultiples.source.sourceDate, source: "user_input", rationale: `Source type: ${input.marketMultiples.source.kind}; region: ${input.marketMultiples.source.region ?? "n/a"}; Damodaran industry: ${input.marketMultiples.source.damodaranIndustry ?? "n/a"}; public comps included: ${input.marketMultiples.source.publicComparableIncludedCount ?? "n/a"} of ${input.marketMultiples.source.publicComparableCount ?? "n/a"}${input.marketMultiples.source.benchmarkAssistantGeneratedAt ? `; benchmark assistant: ${input.marketMultiples.source.benchmarkAssistantGeneratedAt}` : ""}${input.marketMultiples.source.sourceUrl ? `; URL: ${input.marketMultiples.source.sourceUrl}` : ""}.` },

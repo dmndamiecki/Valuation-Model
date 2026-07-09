@@ -4,6 +4,7 @@ import { forecastFinancials, normalizeLatestEbitda, sumNormalizationAdjustments 
 import { calculateMarketValuation } from "./multiples";
 import type { ValuationInput } from "./types";
 import { calculateWacc } from "./wacc";
+import { getFinancialCraftLiquidityBenchmark } from "../data-sources/financialcraft-liquidity";
 
 export type DiagnosticSeverity = "info" | "warning" | "critical";
 export type DiagnosticArea = "Forecast" | "WACC" | "Terminal Value" | "Bridge" | "Discounts" | "Normalization" | "Market Approach" | "Sources";
@@ -113,6 +114,7 @@ export function calculateValuationDiagnostics(input: ValuationInput): Diagnostic
   const terminalValueContribution = safeDivide(dcf.terminalValue.presentValueTerminalValue, dcf.enterpriseValue);
   const normalizedEbitda = normalizeLatestEbitda(input.historicals, input.normalizationAdjustments);
   const totalDebtLikeItems = bridge.debt + bridge.leasing + bridge.otherDebtLikeItems;
+  const liquidityBenchmark = getFinancialCraftLiquidityBenchmark(Math.max(bridge.equityValue, 0));
   const debtToEbitda = safeDivide(totalDebtLikeItems, normalizedEbitda);
   const importedLiabilities = input.importMetadata?.bridge?.liabilities?.value ?? input.importMetadata?.assetFloor?.liabilities?.value ?? null;
   const evEqualsEquity = Math.abs(bridge.equityValue - dcf.enterpriseValue) < 1;
@@ -374,6 +376,16 @@ export function calculateValuationDiagnostics(input: ValuationInput): Diagnostic
       area: "Discounts",
       message: `DLOM is ${(input.discounts.lackOfMarketability * 100).toFixed(1)}%, above 30%.`,
       suggestedAction: "Benchmark the marketability discount against observed transaction restrictions and expected holding period.",
+    });
+  }
+
+  if (Math.abs(input.discounts.lackOfMarketability - liquidityBenchmark.lackOfMarketabilityDiscount) > 0.03) {
+    diagnostics.push({
+      code: "DLOM_DEVIATES_FROM_FINANCIALCRAFT_BENCHMARK",
+      severity: "info",
+      area: "Discounts",
+      message: `DLOM is ${(input.discounts.lackOfMarketability * 100).toFixed(1)}% versus FinancialCraft ${liquidityBenchmark.sourcePeriod} benchmark of ${(liquidityBenchmark.lackOfMarketabilityDiscount * 100).toFixed(1)}% for ${liquidityBenchmark.sizeLabel}.`,
+      suggestedAction: "Document the reason for using a manual DLOM override, such as expected exit route, holding period, shareholder restrictions, or transaction-specific liquidity facts.",
     });
   }
 

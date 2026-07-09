@@ -14,7 +14,7 @@ export type TemplateConfidence = "high" | "medium" | "low";
 
 export type TemplateValue = {
   value: number;
-  source: "Internal SME assumption" | "Damodaran sector dataset";
+  source: "Internal SME assumption" | "Damodaran sector dataset" | "FinancialCraft liquidity benchmark";
   sourceUrl?: string;
   sourceDate: string;
   confidence: TemplateConfidence;
@@ -39,7 +39,15 @@ const internalSource = (value: number, confidence: TemplateConfidence = "medium"
   note,
 });
 
-const dlomSeed = (value: number): TemplateValue => internalSource(value, "medium", "Editable private-company DLOM seed; should be reviewed for the specific facts and circumstances.");
+const dlomSeed = (value: number): TemplateValue => ({
+  value,
+  source: "FinancialCraft liquidity benchmark",
+  sourceUrl: "https://financialcraft.pl/premia-za-plynnosc-i-dyskonto-za-brak-plynnosci/",
+  sourceDate: "1Q2026",
+  confidence: "medium",
+  isUserEditable: true,
+  note: "DLOM should be driven by FinancialCraft size bucket in the main model; template value is retained only as broad fallback context.",
+});
 
 export const industryTemplates: IndustryTemplate[] = [
   {
@@ -113,9 +121,6 @@ export function applyIndustryTemplate(input: ValuationInput, template: IndustryT
       ...input.forecast,
       taxRate: assumptions.defaultTaxRate?.value ?? input.forecast.taxRate,
     },
-    discounts: {
-      ...input.discounts,
-      lackOfMarketability: assumptions.dlom.value,
-    },
+    discounts: input.discounts,
   };
 }

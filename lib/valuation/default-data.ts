@@ -68,7 +68,8 @@ export function createBlankValuationInput(valuationDate = todayIsoDate()): Valua
       nonOperatingAssets: 0,
     },
     discounts: {
-      lackOfMarketability: 0.15,
+      lackOfMarketability: 0.19,
+      lackOfMarketabilitySource: "financialCraftBenchmark",
       keyPersonDiscount: 0.05,
       customerConcentrationDiscount: 0.05,
     },
@@ -154,7 +155,8 @@ export const exampleValuationInput: ValuationInput = {
     nonOperatingAssets: 225,
   },
   discounts: {
-    lackOfMarketability: 0.18,
+    lackOfMarketability: 0.19,
+    lackOfMarketabilitySource: "financialCraftBenchmark",
     keyPersonDiscount: 0.04,
     customerConcentrationDiscount: 0.06,
   },

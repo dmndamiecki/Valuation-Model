@@ -135,7 +135,7 @@ function deriveWorkingCapital(
     : baseInput.workingCapital.nwcPctRevenue[0] ?? 0;
 
   return {
-    nwcPctRevenue: repeatedFive(Math.max(0, nwcPctRevenue)),
+    nwcPctRevenue: repeatedFive(Math.max(-1, Math.min(1, nwcPctRevenue))),
   };
 }
 

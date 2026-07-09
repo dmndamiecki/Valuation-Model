@@ -493,7 +493,7 @@ function buildMonteCarloEngine(input: ValuationInput, weight: number): Valuation
       },
       workingCapital: {
         ...input.workingCapital,
-        nwcPctRevenue: input.workingCapital.nwcPctRevenue.map((value) => Math.max(0, Math.min(0.8, value + shock(0.04)))),
+        nwcPctRevenue: input.workingCapital.nwcPctRevenue.map((value) => Math.max(-1, Math.min(1, value + shock(0.04)))),
       },
       wacc: {
         ...input.wacc,

@@ -57,7 +57,7 @@ export const forecastAssumptionsSchema = z.object({
 });
 
 export const workingCapitalAssumptionsSchema = z.object({
-  nwcPctRevenue: z.array(ratioSchema).length(5),
+  nwcPctRevenue: z.array(z.number().min(-1).max(1)).length(5),
 });
 
 export const waccAssumptionsSchema = z.object({
@@ -88,6 +88,7 @@ export const bridgeAssumptionsSchema = z.object({
 
 export const discountAssumptionsSchema = z.object({
   lackOfMarketability: ratioSchema,
+  lackOfMarketabilitySource: z.enum(["financialCraftBenchmark", "manual"]).default("financialCraftBenchmark"),
   keyPersonDiscount: ratioSchema,
   customerConcentrationDiscount: ratioSchema,
 });

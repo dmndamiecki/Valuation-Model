@@ -177,7 +177,8 @@ export function buildValuationInputFromSimpleMode(
       nonOperatingAssets: 0,
     },
     discounts: {
-      lackOfMarketability: 0.15,
+      lackOfMarketability: 0.19,
+      lackOfMarketabilitySource: "financialCraftBenchmark",
       keyPersonDiscount: 0.05,
       customerConcentrationDiscount: 0.05,
     },
