@@ -108,6 +108,15 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
+function escapeXml(value: string | number | boolean): string {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
 function csvEscape(value: string | number | boolean): string {
   const stringValue = String(value);
   return /[",\n]/.test(stringValue) ? `"${stringValue.replaceAll('"', '""')}"` : stringValue;
@@ -448,6 +457,263 @@ export function buildPdfReportHtml(report: ValuationReport): string {
   </div>
 </body>
 </html>`;
+}
+
+export function buildExecutiveSummaryPdfHtml(report: ValuationReport): string {
+  const currency = report.companyProfile.currency || "PLN";
+  const companyName = report.companyProfile.companyName || "Company valuation";
+  const conclusion = report.valuationConclusion;
+  const executive = report.executiveSummary;
+  const readiness = report.bankerGradeOutput.readiness;
+  const generatedDate = new Date(report.generatedAt).toLocaleString("en-US");
+  const warnings = conclusion.keyWarnings.length > 0 ? conclusion.keyWarnings : ["No critical diagnostics are currently active."];
+  const source = report.inputAssumptions.marketMultiples.source;
+  const footballRows = report.bankerGradeOutput.footballField.map((item) => `
+    <tr>
+      <td>${escapeHtml(item.method)}</td>
+      <td>${escapeHtml(safeMoney(item.low, currency))}</td>
+      <td>${escapeHtml(safeMoney(item.midpoint, currency))}</td>
+      <td>${escapeHtml(safeMoney(item.high, currency))}</td>
+    </tr>
+  `).join("");
+  const scenarioRows = report.scenarioAnalysis.map((scenario) => `
+    <tr>
+      <td>${escapeHtml(scenario.name)}</td>
+      <td>${escapeHtml(safeMoney(scenario.adjustedEquityValue, currency))}</td>
+      <td>${escapeHtml(safeMultiple(scenario.evToEbitda))}</td>
+      <td>${escapeHtml(safePercent(scenario.terminalValueContribution))}</td>
+    </tr>
+  `).join("");
+  const assumptionRows = [
+    ["WACC", safePercent(report.waccSummary.wacc)],
+    ["Cost of equity", safePercent(report.waccSummary.costOfEquity)],
+    ["Terminal method", report.terminalValueBreakdown.method],
+    ["Terminal growth", safePercent(report.executiveSummary.terminalGrowth)],
+    ["EV / EBITDA", safeMultiple(report.inputAssumptions.marketMultiples.evEbitdaMultiple)],
+    ["DLOM", safePercent(report.inputAssumptions.discounts.lackOfMarketability)],
+    ["Market benchmark status", source.approvalStatus],
+  ].map(([label, value]) => `
+    <tr>
+      <td>${escapeHtml(label)}</td>
+      <td>${escapeHtml(String(value))}</td>
+    </tr>
+  `).join("");
+
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>${escapeHtml(companyName)} - Executive Valuation Summary</title>
+  <style>
+    @page { size: A4; margin: 16mm; }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: #0f172a; font-family: Arial, Helvetica, sans-serif; background: #fff; }
+    .page { max-width: 980px; margin: 0 auto; }
+    .cover { border-bottom: 2px solid #0f766e; padding-bottom: 18px; margin-bottom: 20px; }
+    .eyebrow { color: #0f766e; font-size: 10px; font-weight: 800; letter-spacing: 0.18em; text-transform: uppercase; }
+    h1 { margin: 8px 0 8px; font-size: 28px; line-height: 1.08; }
+    h2 { margin: 24px 0 8px; font-size: 16px; }
+    p { margin: 0; line-height: 1.5; }
+    .muted { color: #52627a; font-size: 12px; }
+    .callout { border: 1px solid #c9e7df; border-left: 5px solid #0f766e; border-radius: 10px; padding: 14px; background: #f3fbf8; margin: 14px 0; }
+    .risk { border-color: #f1d6a8; border-left-color: #d97706; background: #fffaf0; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 16px 0; }
+    .metric { border: 1px solid #d8e0ea; border-radius: 10px; padding: 13px; background: #f8fafc; min-height: 90px; }
+    .metric-label { color: #52627a; font-size: 10px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; }
+    .metric-value { margin-top: 8px; font-size: 19px; font-weight: 800; line-height: 1.2; }
+    ul { margin: 8px 0 0 18px; padding: 0; }
+    li { margin: 5px 0; line-height: 1.4; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+    th { color: #52627a; text-align: left; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; border-bottom: 1px solid #d8e0ea; padding: 8px 6px; }
+    td { border-bottom: 1px solid #edf2f7; padding: 9px 6px; vertical-align: top; }
+    .two-col { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 14px; }
+    .small { font-size: 11px; color: #52627a; }
+    .footer { margin-top: 22px; padding-top: 10px; border-top: 1px solid #d8e0ea; color: #52627a; font-size: 11px; }
+    @media print { body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="cover">
+      <div class="eyebrow">Executive valuation summary</div>
+      <h1>${escapeHtml(companyName)}</h1>
+      <p class="muted">Generated ${escapeHtml(generatedDate)} | Currency: ${escapeHtml(currency)} | Country: ${escapeHtml(report.companyProfile.country || "n/a")} | KRS: ${escapeHtml(report.companyProfile.registrationNumber || "n/a")}</p>
+    </section>
+
+    <section class="callout">
+      <div class="eyebrow">Headline conclusion</div>
+      <p><strong>Indicated owner-facing equity value is ${escapeHtml(safeMoney(conclusion.baseAdjustedEquityValue, currency))}</strong>. The current supported range is ${escapeHtml(safeMoney(conclusion.bearAdjustedEquityValue, currency))} to ${escapeHtml(safeMoney(conclusion.bullAdjustedEquityValue, currency))}. Readiness is ${escapeHtml(readiness.posture)}: ${escapeHtml(readiness.headline)}</p>
+    </section>
+
+    <div class="grid">
+      <div class="metric"><div class="metric-label">Base equity value</div><div class="metric-value">${escapeHtml(safeMoney(conclusion.baseAdjustedEquityValue, currency))}</div></div>
+      <div class="metric"><div class="metric-label">Valuation range</div><div class="metric-value">${escapeHtml(safeMoney(conclusion.bearAdjustedEquityValue, currency))}<br/>${escapeHtml(safeMoney(conclusion.bullAdjustedEquityValue, currency))}</div></div>
+      <div class="metric"><div class="metric-label">Core multiple</div><div class="metric-value">${escapeHtml(safeMultiple(executive.evToNormalizedEbitda))} EV / EBITDA</div></div>
+    </div>
+
+    <div class="two-col">
+      <section>
+        <h2>Key Valuation Drivers</h2>
+        <ul>${conclusion.keyValuationDrivers.slice(0, 4).map((driver) => `<li>${escapeHtml(driver)}</li>`).join("")}</ul>
+      </section>
+      <section>
+        <h2>Core Assumptions</h2>
+        <table>
+          <tbody>${assumptionRows}</tbody>
+        </table>
+      </section>
+    </div>
+
+    <section class="callout risk">
+      <div class="eyebrow">Review items</div>
+      <ul>${warnings.slice(0, 5).map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}</ul>
+    </section>
+
+    <h2>Valuation Range By Method</h2>
+    <table>
+      <thead><tr><th>Method</th><th>Low</th><th>Midpoint</th><th>High</th></tr></thead>
+      <tbody>${footballRows}</tbody>
+    </table>
+
+    <h2>Scenario Support</h2>
+    <table>
+      <thead><tr><th>Scenario</th><th>Adjusted equity value</th><th>EV / EBITDA</th><th>TV / EV</th></tr></thead>
+      <tbody>${scenarioRows}</tbody>
+    </table>
+
+    <h2>Benchmark Source Posture</h2>
+    <p class="small">Market benchmark: ${escapeHtml(source.label)}. Status: ${escapeHtml(source.approvalStatus)}. Confidence: ${escapeHtml(source.confidence)}. Damodaran industry: ${escapeHtml(source.damodaranIndustry ?? "n/a")}. Dataset: ${escapeHtml(source.dataset ?? "n/a")}.</p>
+
+    <h2>Methodology</h2>
+    <p class="small">${escapeHtml(conclusion.methodologyNote)} This document is intentionally limited to decision-grade outputs; the Excel workbook and JSON/CSV exports retain detailed audit support.</p>
+
+    <div class="footer">Prepared by Valuation Workbench. Review diagnostics, bridge inputs, and source approvals before external distribution.</div>
+  </div>
+</body>
+</html>`;
+}
+
+function excelCell(value: string | number | boolean, styleId?: string): string {
+  const type = typeof value === "number" && Number.isFinite(value) ? "Number" : "String";
+  return `<Cell${styleId ? ` ss:StyleID="${styleId}"` : ""}><Data ss:Type="${type}">${escapeXml(type === "Number" ? value : String(value))}</Data></Cell>`;
+}
+
+function excelRow(values: Array<string | number | boolean>, styleId?: string): string {
+  return `<Row>${values.map((value) => excelCell(value, styleId)).join("")}</Row>`;
+}
+
+function excelSheet(name: string, rows: string[]): string {
+  return `<Worksheet ss:Name="${escapeXml(name)}"><Table>${rows.join("")}</Table></Worksheet>`;
+}
+
+export function buildExecutiveExcelWorkbookXml(report: ValuationReport): string {
+  const currency = report.companyProfile.currency || "PLN";
+  const conclusion = report.valuationConclusion;
+  const readiness = report.bankerGradeOutput.readiness;
+  const source = report.inputAssumptions.marketMultiples.source;
+  const latestHistorical = report.inputAssumptions.historicals[report.inputAssumptions.historicals.length - 1];
+  const coreAssumptions = [
+    ["WACC", report.waccSummary.wacc],
+    ["Cost of equity", report.waccSummary.costOfEquity],
+    ["Risk-free rate", report.inputAssumptions.wacc.riskFreeRate],
+    ["Equity risk premium", report.inputAssumptions.wacc.equityRiskPremium],
+    ["Beta", report.inputAssumptions.wacc.beta],
+    ["Terminal growth", report.executiveSummary.terminalGrowth],
+    ["EV/EBITDA benchmark", report.inputAssumptions.marketMultiples.evEbitdaMultiple],
+    ["EV/Revenue benchmark", report.inputAssumptions.marketMultiples.evRevenueMultiple],
+    ["DLOM", report.inputAssumptions.discounts.lackOfMarketability],
+    ["Key-person discount", report.inputAssumptions.discounts.keyPersonDiscount],
+    ["Customer concentration discount", report.inputAssumptions.discounts.customerConcentrationDiscount],
+  ];
+
+  const summaryRows = [
+    excelRow(["Executive Summary"], "Title"),
+    excelRow(["Company", report.companyProfile.companyName || "n/a"]),
+    excelRow(["KRS", report.companyProfile.registrationNumber || "n/a"]),
+    excelRow(["Country", report.companyProfile.country || "n/a"]),
+    excelRow(["Currency", currency]),
+    excelRow(["Valuation date", report.companyProfile.valuationDate || "n/a"]),
+    excelRow(["Generated at", report.generatedAt]),
+    excelRow([""]),
+    excelRow(["Base adjusted equity value", conclusion.baseAdjustedEquityValue]),
+    excelRow(["Low indication", conclusion.bearAdjustedEquityValue]),
+    excelRow(["High indication", conclusion.bullAdjustedEquityValue]),
+    excelRow(["Readiness posture", readiness.posture]),
+    excelRow(["Readiness headline", readiness.headline]),
+    excelRow([""]),
+    excelRow(["Latest revenue", latestHistorical?.revenue ?? "n/a"]),
+    excelRow(["Latest EBITDA", latestHistorical?.ebitda ?? "n/a"]),
+    excelRow(["Normalized EBITDA", report.normalizedEbitdaBridge.normalizedEbitda]),
+    excelRow(["EV / normalized EBITDA", report.executiveSummary.evToNormalizedEbitda]),
+  ];
+
+  const rangeRows = [
+    excelRow(["Method", "Low", "Midpoint", "High", "Basis"], "Header"),
+    ...report.bankerGradeOutput.footballField.map((item) => excelRow([item.method, item.low, item.midpoint, item.high, item.basis])),
+    excelRow([""]),
+    excelRow(["Scenario", "Enterprise Value", "Equity Value", "Adjusted Equity Value", "EV/EBITDA", "TV/EV"], "Header"),
+    ...report.scenarioAnalysis.map((scenario) => excelRow([
+      scenario.name,
+      scenario.enterpriseValue,
+      scenario.equityValue,
+      scenario.adjustedEquityValue,
+      scenario.evToEbitda,
+      scenario.terminalValueContribution,
+    ])),
+  ];
+
+  const assumptionsRows = [
+    excelRow(["Assumption", "Value"], "Header"),
+    ...coreAssumptions.map(([label, value]) => excelRow([String(label), value as number])),
+    excelRow([""]),
+    excelRow(["Market benchmark source", "Value"], "Header"),
+    excelRow(["Source label", source.label]),
+    excelRow(["Approval status", source.approvalStatus]),
+    excelRow(["Confidence", source.confidence]),
+    excelRow(["Region", source.region ?? "n/a"]),
+    excelRow(["Dataset", source.dataset ?? "n/a"]),
+    excelRow(["Damodaran industry", source.damodaranIndustry ?? "n/a"]),
+    excelRow(["Source date", source.sourceDate]),
+    excelRow(["Rationale", source.rationale]),
+  ];
+
+  const diagnosticsRows = [
+    excelRow(["Severity", "Area", "Code", "Message"], "Header"),
+    ...report.diagnosticsSummary.diagnostics.map((diagnostic) => excelRow([
+      diagnostic.severity,
+      diagnostic.area,
+      diagnostic.code,
+      diagnostic.message,
+    ])),
+    excelRow([""]),
+    excelRow(["Next actions"], "Header"),
+    ...report.bankerGradeOutput.openDiligenceItems.map((item) => excelRow([item])),
+  ];
+
+  const auditRows = [
+    excelRow(["Timestamp", "Event", "Detail"], "Header"),
+    ...report.bankerGradeOutput.auditTrail.map((item) => excelRow([item.timestamp, item.event, item.detail])),
+    excelRow([""]),
+    excelRow(["Driver"], "Header"),
+    ...conclusion.keyValuationDrivers.map((item) => excelRow([item])),
+  ];
+
+  return `<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+  xmlns:o="urn:schemas-microsoft-com:office:office"
+  xmlns:x="urn:schemas-microsoft-com:office:excel"
+  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+  <Styles>
+    <Style ss:ID="Title"><Font ss:Bold="1" ss:Size="16" ss:Color="#0f172a"/></Style>
+    <Style ss:ID="Header"><Font ss:Bold="1" ss:Color="#334155"/><Interior ss:Color="#eef2f7" ss:Pattern="Solid"/></Style>
+  </Styles>
+  ${excelSheet("Executive Summary", summaryRows)}
+  ${excelSheet("Valuation Range", rangeRows)}
+  ${excelSheet("Assumptions", assumptionsRows)}
+  ${excelSheet("Diagnostics", diagnosticsRows)}
+  ${excelSheet("Audit Trail", auditRows)}
+</Workbook>`;
 }
 
 export function buildForecastCsv(report: ValuationReport): string {

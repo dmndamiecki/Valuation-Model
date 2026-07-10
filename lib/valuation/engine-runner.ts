@@ -543,7 +543,13 @@ function buildMonteCarloEngine(input: ValuationInput, weight: number): Valuation
 }
 
 function normalizeWeights(results: ValuationEngineResult[]): ValuationEngineResult[] {
-  const active = results.filter((result) => result.status !== "disabled" && result.status !== "missing-data" && Number.isFinite(result.equityValue.base));
+  const blendedEngineIds = new Set<ValuationEngineId>(["dcf", "comparableCompanies", "marketMultiples", "assetBasedFloor", "monteCarlo"]);
+  const active = results.filter((result) =>
+    blendedEngineIds.has(result.id) &&
+    result.status !== "disabled" &&
+    result.status !== "missing-data" &&
+    Number.isFinite(result.equityValue.base)
+  );
   const totalWeight = active.reduce((sum, result) => sum + result.weight * Math.max(0.1, result.confidenceScore / 100), 0);
   return results.map((result) => {
     if (!active.includes(result) || totalWeight <= 0) return { ...result, normalizedWeight: 0 };

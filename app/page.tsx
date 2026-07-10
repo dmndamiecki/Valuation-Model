@@ -20,7 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { createDamodaranManualSeedSnapshot } from "@/lib/data-sources/damodaran";
 import type { DamodaranBetaSuggestion } from "@/lib/data-sources/damodaran-beta";
 import type { DamodaranErpSuggestion } from "@/lib/data-sources/damodaran-erp";
-import { getDamodaranEuropeIndustryNames, type DamodaranEuropeBenchmark } from "@/lib/data-sources/damodaran-europe";
+import { getDamodaranEuropeBenchmark, getDamodaranEuropeIndustryNames, suggestDamodaranEuropeIndustry, type DamodaranEuropeBenchmark, type DamodaranEuropeSuggestion } from "@/lib/data-sources/damodaran-europe";
 import { getFinancialCraftLiquidityBenchmark } from "@/lib/data-sources/financialcraft-liquidity";
 import { createFredManualSeedSnapshot, type FredRiskFreeRateResult } from "@/lib/data-sources/fred";
 import { cleanBizRaportKrs, isKrs, isNip } from "@/lib/data-sources/identifiers";
@@ -33,7 +33,7 @@ import { calculateEquityBridge, calculatePrivateCompanyDiscounts } from "@/lib/v
 import { countryOptions, currencyOptions, formatCurrencyOption, getDefaultCurrencyForCountry } from "@/lib/valuation/company-profile";
 import { calculateDcf } from "@/lib/valuation/dcf";
 import { calculateValuationDiagnostics } from "@/lib/valuation/diagnostics";
-import { buildCombinedCsvExport, buildPdfReportHtml, buildReportJson, buildReportSummaryText, buildValuationReport } from "@/lib/valuation/export";
+import { buildCombinedCsvExport, buildExecutiveExcelWorkbookXml, buildExecutiveSummaryPdfHtml, buildReportJson, buildReportSummaryText, buildValuationReport } from "@/lib/valuation/export";
 import { createBlankValuationInput } from "@/lib/valuation/default-data";
 import { calculateNormalizationMarginUplift, forecastFinancials, normalizeLatestEbitda, seedForecastFromHistoricals, sumNormalizationAdjustments, type HistoricalForecastSeed } from "@/lib/valuation/forecast";
 import {
@@ -59,13 +59,13 @@ import { buildBizRaportPeerFilters } from "@/lib/valuation/comparable-companies"
 import type { PeerBenchmarkResult } from "@/lib/valuation/peer-benchmarks";
 
 type PercentArrayKey = "revenueGrowth" | "ebitdaMargin" | "depreciationPctRevenue" | "capexPctRevenue";
-type ValuationMode = "simple" | "professional";
-type WizardInput = SimpleModeInput & { valuationType: ValuationMode; industryTemplateName: string; applyIndustryTemplate: boolean };
+type WizardInput = SimpleModeInput & { industryTemplateName: string; applyIndustryTemplate: boolean };
 type BizRaportSearchItem = { krs: string };
 type CombinedCompanyImportPreviewData = {
   krsProfile: CompanyProfileData | null;
   companyData: CompanyFinancialData | null;
   pkdSuggestion: PkdIndustrySuggestion | null;
+  damodaranSuggestion: DamodaranEuropeSuggestion | null;
   seed: HistoricalForecastSeed | null;
   notes: string[];
   warnings: string[];
@@ -84,10 +84,13 @@ type DataReadinessItem = {
   status: "connected" | "partial" | "manual";
   detail: string;
 };
+type BenchmarkCoverageItem = DataReadinessItem & {
+  group: "Auto-filled" | "Review" | "Manual";
+};
 
 const blankValuationInput = createBlankValuationInput();
 const defaultSimpleModeInput = simpleInputFromValuationInput(blankValuationInput);
-const defaultWizardInput: WizardInput = { ...defaultSimpleModeInput, valuationType: "simple", industryTemplateName: "", applyIndustryTemplate: false };
+const defaultWizardInput: WizardInput = { ...defaultSimpleModeInput, industryTemplateName: "", applyIndustryTemplate: false };
 
 type WorkflowStatus = "complete" | "warning" | "missing inputs";
 
@@ -127,10 +130,10 @@ function DataReadinessPanel({ items, score }: { items: DataReadinessItem[]; scor
       <CardHeader>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <CardTitle>Data readiness</CardTitle>
-            <CardDescription>KRS, BizRaport, PKD, forecast seed, and WACC sources are checked before you rely on the valuation output.</CardDescription>
+            <CardTitle>Benchmark coverage</CardTitle>
+            <CardDescription>One compact check of what is auto-filled, what needs review, and what is still manual.</CardDescription>
           </div>
-          <Badge className={score >= 80 ? "border-emerald-200 bg-emerald-50 text-emerald-800" : score >= 50 ? "border-amber-200 bg-amber-50 text-amber-800" : "border-slate-200 bg-slate-50 text-slate-700"}>Readiness {score}%</Badge>
+          <Badge className={score >= 80 ? "border-emerald-200 bg-emerald-50 text-emerald-800" : score >= 50 ? "border-amber-200 bg-amber-50 text-amber-800" : "border-slate-200 bg-slate-50 text-slate-700"}>{score}% covered</Badge>
         </div>
       </CardHeader>
       <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
@@ -160,6 +163,42 @@ function WorkflowHeader({ id, eyebrow, title, description, status }: { id: strin
         <StatusBadge status={status} />
       </div>
     </div>
+  );
+}
+
+function BenchmarkCoveragePanel({ items, score }: { items: BenchmarkCoverageItem[]; score: number }) {
+  const groups: BenchmarkCoverageItem["group"][] = ["Auto-filled", "Review", "Manual"];
+
+  return (
+    <Card className="border-slate-300 bg-white">
+      <CardHeader>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <CardTitle>What the model already knows</CardTitle>
+            <CardDescription>Source details are collapsed here so the valuation flow stays readable.</CardDescription>
+          </div>
+          <Badge className={score >= 80 ? "border-emerald-200 bg-emerald-50 text-emerald-800" : score >= 50 ? "border-amber-200 bg-amber-50 text-amber-800" : "border-slate-200 bg-slate-50 text-slate-700"}>{score}% source coverage</Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="grid gap-4 lg:grid-cols-3">
+        {groups.map((group) => (
+          <div key={group} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">{group}</p>
+            <div className="mt-3 space-y-2">
+              {items.filter((item) => item.group === group).map((item) => (
+                <div key={`${group}-${item.label}`} className="rounded-md border border-slate-200 bg-white p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-bold text-slate-950">{item.label}</p>
+                    <Badge className={dataReadinessClassName(item.status)}>{item.status}</Badge>
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-slate-600">{item.detail}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -408,14 +447,24 @@ function CombinedCompanyImportPreview({ preview, currency, onConfirm }: { previe
               <OutputRow label="NWC / revenue" value={`${pct(preview.seed.nwcPctRevenue)} · ${preview.seed.source}`} />
             </div>
           ) : <p className="mt-3 text-sm text-slate-500">Generated forecast assumptions require imported financials.</p>}
-          {preview.pkdSuggestion ? <div className="mt-3 rounded-xl border border-teal-200 bg-teal-50 p-3"><p className="text-sm font-semibold text-teal-950">{preview.pkdSuggestion.message}</p><p className="mt-1 text-xs text-teal-800">Selected industry template if imported: {preview.pkdSuggestion.industryTemplateName}. Forecast assumptions remain generated from historical financial statements.</p></div> : <p className="mt-3 text-sm text-slate-500">No PKD-based industry suggestion available.</p>}
+          {preview.damodaranSuggestion?.damodaranIndustry ? (
+            <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 p-3">
+              <p className="text-sm font-semibold text-blue-950">Damodaran sector: {preview.damodaranSuggestion.damodaranIndustry}</p>
+              <p className="mt-1 text-xs leading-5 text-blue-800">{preview.damodaranSuggestion.rationale}</p>
+            </div>
+          ) : null}
+          {preview.pkdSuggestion ? (
+            <div className="mt-3 rounded-xl border border-teal-200 bg-teal-50 p-3"><p className="text-sm font-semibold text-teal-950">{preview.pkdSuggestion.message}</p><p className="mt-1 text-xs text-teal-800">Internal SME template if imported: {preview.pkdSuggestion.industryTemplateName}. Forecast assumptions remain generated from historical financial statements.</p></div>
+          ) : preview.damodaranSuggestion?.damodaranIndustry ? (
+            <p className="mt-3 text-xs text-slate-500">No internal SME template is needed. The valuation will use the Damodaran sector benchmark above.</p>
+          ) : <p className="mt-3 text-sm text-slate-500">No PKD-based Damodaran sector available yet.</p>}
         </div>
       </div>
 
       {preview.notes.length > 0 ? <p className="text-xs text-slate-600">{preview.notes.join(" ")}</p> : null}
       {preview.warnings.length > 0 ? <p className="text-xs text-amber-700">{preview.warnings.join(" ")}</p> : null}
       <div className="flex flex-col gap-3 border-t border-teal-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm text-slate-700">If these details look right, apply them to the valuation model and choose the owner or extended view.</p>
+        <p className="text-sm text-slate-700">If these details look right, apply them to the valuation model and review the first result.</p>
         <button className="rounded-xl bg-teal-700 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={onConfirm}>Confirm and apply data</button>
       </div>
     </div>
@@ -452,110 +501,6 @@ function MetricCard({ label, value, helper }: { label: string; value: string; he
   );
 }
 
-type WorkbenchNextStepsProps = {
-  mode: ValuationMode;
-  sourceReadinessScore: number;
-  marketMultipleSource: MarketMultipleSource;
-  criticalCount: number;
-  warningCount: number;
-  benchmarkAssistantStatus: string;
-  peerBenchmarkStatus: string;
-  onOpenExtended: () => void;
-};
-
-function stepToneClassName(status: "ready" | "review" | "action") {
-  if (status === "ready") return "border-emerald-200 bg-emerald-50 text-emerald-800";
-  if (status === "review") return "border-amber-200 bg-amber-50 text-amber-800";
-  return "border-slate-200 bg-slate-50 text-slate-700";
-}
-
-function WorkbenchNextSteps({
-  mode,
-  sourceReadinessScore,
-  marketMultipleSource,
-  criticalCount,
-  warningCount,
-  benchmarkAssistantStatus,
-  peerBenchmarkStatus,
-  onOpenExtended,
-}: WorkbenchNextStepsProps) {
-  const sourceStatus = sourceReadinessScore >= 80 ? "ready" : sourceReadinessScore >= 50 ? "review" : "action";
-  const benchmarkStatus = marketMultipleSource.approvalStatus === "approved" ? "ready" : marketMultipleSource.kind === "manual" ? "action" : "review";
-  const diagnosticsStatus = criticalCount > 0 ? "action" : warningCount > 0 ? "review" : "ready";
-  const steps = [
-    {
-      number: "01",
-      title: "Evidence quality",
-      detail: sourceReadinessScore >= 80 ? "KRS, BizRaport and market inputs are connected enough for review." : "Confirm imported company data and market inputs before relying on the output.",
-      status: sourceStatus,
-      href: "#evidence-quality",
-    },
-    {
-      number: "02",
-      title: "Method evidence",
-      detail: marketMultipleSource.approvalStatus === "approved"
-        ? "Selected market evidence is approved."
-        : "Run the benchmark assistant, review sector and peer evidence, then approve selected multiples.",
-      status: benchmarkStatus,
-      href: "#methods",
-    },
-    {
-      number: "03",
-      title: "Assumption review",
-      detail: criticalCount > 0 ? "Critical diagnostics need attention before decision use." : warningCount > 0 ? "Warnings are active; review the relevant assumptions." : "No critical diagnostics are active.",
-      status: diagnosticsStatus,
-      href: "#assumptions",
-    },
-    {
-      number: "04",
-      title: "Export package",
-      detail: "Create the report only after source data, benchmark evidence and diagnostics are reviewed.",
-      status: diagnosticsStatus === "ready" && benchmarkStatus !== "action" ? "ready" : "review",
-      href: "#export",
-    },
-  ] as const;
-
-  return (
-    <Card className="border-slate-300 bg-white/95">
-      <CardHeader>
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <CardTitle>Review path</CardTitle>
-            <CardDescription>One valuation model, one headline conclusion. These cards guide the review without creating a second result.</CardDescription>
-          </div>
-          {mode === "simple" ? (
-            <button className="inline-flex items-center justify-center rounded-md bg-slate-950 px-4 py-2 text-sm font-bold text-white transition hover:bg-teal-800" onClick={onOpenExtended}>
-              Open workbench
-            </button>
-          ) : (
-            <Badge className="border-slate-200 bg-slate-50 text-slate-700">Workbench open</Badge>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid gap-3 lg:grid-cols-4">
-          {steps.map((step) => (
-            <a key={step.number} href={step.href} className="group block rounded-lg border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-4 transition hover:border-teal-500 hover:shadow-sm">
-              <div className="flex items-start justify-between gap-3">
-                <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">{step.number}</span>
-                <Badge className={stepToneClassName(step.status)}>{step.status === "ready" ? "ready" : step.status === "review" ? "review" : "action"}</Badge>
-              </div>
-              <p className="mt-4 text-sm font-bold text-slate-950">{step.title}</p>
-              <p className="mt-2 text-xs leading-5 text-slate-600">{step.detail}</p>
-            </a>
-          ))}
-        </div>
-        {(benchmarkAssistantStatus || peerBenchmarkStatus) ? (
-          <div className="grid gap-3 text-xs leading-5 text-slate-600 md:grid-cols-2">
-            {benchmarkAssistantStatus ? <p className="rounded-md border border-teal-100 bg-teal-50 p-3"><strong className="text-teal-950">Benchmark assistant:</strong> {benchmarkAssistantStatus}</p> : null}
-            {peerBenchmarkStatus ? <p className="rounded-md border border-slate-200 bg-slate-50 p-3"><strong className="text-slate-950">Peer screen:</strong> {peerBenchmarkStatus}</p> : null}
-          </div>
-        ) : null}
-      </CardContent>
-    </Card>
-  );
-}
-
 function engineStatusClassName(status: ValuationEngineResult["status"]) {
   if (status === "ready") return "border-emerald-200 bg-emerald-50 text-emerald-800";
   if (status === "review") return "border-amber-200 bg-amber-50 text-amber-800";
@@ -568,6 +513,10 @@ function engineAccentClassName(status: ValuationEngineResult["status"]) {
   if (status === "review") return "from-amber-400 to-orange-600";
   if (status === "missing-data") return "from-red-400 to-rose-700";
   return "from-slate-300 to-slate-500";
+}
+
+function isSupportingValuationEngine(engine: ValuationEngineResult) {
+  return engine.id === "scenarioAnalysis";
 }
 
 function diagnosticToneClassName(severity: ValuationEngineResult["diagnostics"][number]["severity"]) {
@@ -619,6 +568,8 @@ function EngineCockpit({
   const reviewCount = cockpit.engineResults.filter((engine) => engine.status === "review").length;
   const missingCount = cockpit.engineResults.filter((engine) => engine.status === "missing-data").length;
   const weightedEngines = cockpit.engineResults.filter((engine) => engine.normalizedWeight > 0);
+  const supportingEngines = cockpit.engineResults.filter(isSupportingValuationEngine);
+  const excludedWeightedEngines = cockpit.excludedEngines.filter((engine) => !isSupportingValuationEngine(engine));
 
   return (
     <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
@@ -630,7 +581,7 @@ function EngineCockpit({
                 <span className="flex h-9 w-9 items-center justify-center rounded-md bg-slate-950 text-white"><Layers3 size={18} /></span>
                 <div>
                   <CardTitle>Valuation Models</CardTitle>
-                  <CardDescription>One blended valuation view across DCF, market multiples, asset floor, scenarios, and Monte Carlo.</CardDescription>
+                  <CardDescription>One blended valuation view across DCF, market multiples, asset floor, and simulation. Scenario analysis is shown as DCF risk support, not double-counted in the blend.</CardDescription>
                 </div>
               </div>
             </div>
@@ -694,16 +645,18 @@ function EngineCockpit({
                 )) : <p className="text-sm text-slate-500">No active engine weights available yet.</p>}
               </div>
               <p className="mt-4 rounded-md border border-slate-200 bg-white p-3 text-xs leading-5 text-slate-600">
-                Industry profile: <span className="font-bold text-slate-950">{cockpit.industryProfile.label}</span>. Active engines: {cockpit.activeEngines.length}. Excluded engines: {cockpit.excludedEngines.length}.
+                Industry profile: <span className="font-bold text-slate-950">{cockpit.industryProfile.label}</span>. Weighted methods: {weightedEngines.length}. Supporting analyses: {supportingEngines.length}. Excluded engines: {excludedWeightedEngines.length}.
               </p>
             </div>
           </div>
 
           <div className="grid gap-3 lg:grid-cols-2">
-            {cockpit.engineResults.map((engine) => (
+            {cockpit.engineResults.map((engine) => {
+              const supportingEngine = isSupportingValuationEngine(engine);
+              return (
               <button
                 key={engine.id}
-                className={`min-w-0 rounded-lg border p-4 text-left transition hover:border-teal-600 ${selectedEngine?.id === engine.id ? "border-teal-600 bg-teal-50/60 shadow-md" : engine.normalizedWeight === 0 ? "border-slate-200 bg-slate-50 opacity-80" : "border-slate-200 bg-white shadow-sm"}`}
+                className={`min-w-0 rounded-lg border p-4 text-left transition hover:border-teal-600 ${selectedEngine?.id === engine.id ? "border-teal-600 bg-teal-50/60 shadow-md" : engine.normalizedWeight === 0 && !supportingEngine ? "border-slate-200 bg-slate-50 opacity-80" : "border-slate-200 bg-white shadow-sm"}`}
                 onClick={() => onSelectEngine(engine.id)}
               >
                 <div className="flex items-start justify-between gap-3">
@@ -720,7 +673,7 @@ function EngineCockpit({
                   </div>
                   <div className="rounded-md bg-slate-50 p-2">
                     <p className="text-[0.68rem] font-bold uppercase tracking-[0.1em] text-slate-500">Weight</p>
-                    <p className="mt-1 font-bold text-slate-950">{(engine.normalizedWeight * 100).toFixed(0)}%</p>
+                    <p className="mt-1 font-bold text-slate-950">{supportingEngine ? "Support" : `${(engine.normalizedWeight * 100).toFixed(0)}%`}</p>
                   </div>
                   <div className="rounded-md bg-slate-50 p-2">
                     <p className="text-[0.68rem] font-bold uppercase tracking-[0.1em] text-slate-500">Confidence</p>
@@ -748,7 +701,7 @@ function EngineCockpit({
                   </div>
                 </div>
                 <p className="mt-3 text-xs leading-5 text-slate-600">
-                  {engine.diagnostics[0]?.message ?? `${engine.inputSources.length + engine.calculationSources.length} source item(s) supporting this engine.`}
+                  {supportingEngine ? "DCF downside/base/upside risk range. Used for interpretation, not as a separate weighted valuation method." : engine.diagnostics[0]?.message ?? `${engine.inputSources.length + engine.calculationSources.length} source item(s) supporting this engine.`}
                 </p>
                 {engine.id === "comparableCompanies" ? (
                   <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
@@ -767,7 +720,8 @@ function EngineCockpit({
                   </div>
                 ) : null}
               </button>
-            ))}
+            );
+            })}
           </div>
         </CardContent>
       </Card>
@@ -922,10 +876,11 @@ function NumericInput({ value, onChange, percent = false }: { value: number; onC
     }
   }, [focused, percent, value]);
 
-  return (
+  const input = (
     <Input
       type="text"
       inputMode="decimal"
+      className={percent ? "pr-9" : undefined}
       value={displayValue}
       onFocus={() => setFocused(true)}
       onBlur={() => {
@@ -939,12 +894,91 @@ function NumericInput({ value, onChange, percent = false }: { value: number; onC
       }}
     />
   );
+
+  if (!percent) {
+    return input;
+  }
+
+  return (
+    <div className="relative">
+      {input}
+      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm font-semibold text-slate-500">%</span>
+    </div>
+  );
+}
+
+function CompanyOperatingSnapshot({
+  historicals,
+  currency,
+  industry,
+  damodaranIndustry,
+  normalizedEbitda,
+  latestYear,
+}: {
+  historicals: ValuationInput["historicals"];
+  currency: string;
+  industry: string;
+  damodaranIndustry: string;
+  normalizedEbitda: number;
+  latestYear: number | null;
+}) {
+  const chartData = historicals.map((year) => ({
+    year: year.year,
+    revenue: year.revenue,
+    ebitda: year.ebitda,
+    margin: year.revenue !== 0 ? year.ebitda / year.revenue : 0,
+  }));
+  const latestHistorical = historicals[historicals.length - 1];
+  const latestMargin = latestHistorical?.revenue ? latestHistorical.ebitda / latestHistorical.revenue : Number.NaN;
+  const revenueChange = historicals.length > 1 && historicals[0].revenue !== 0 ? (latestHistorical.revenue / historicals[0].revenue) - 1 : Number.NaN;
+
+  return (
+    <Card className="border-slate-300 bg-white">
+      <CardHeader>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <CardTitle>Company operating snapshot</CardTitle>
+            <CardDescription>Imported financial history is shown as evidence. Edit assumptions below only when you want to override the model.</CardDescription>
+          </div>
+          <Badge className="border-teal-200 bg-teal-50 text-teal-800">{latestYear ? `Latest year ${latestYear}` : "Historical baseline"}</Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+        <div className="chart-frame">
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={chartData}>
+              <CartesianGrid stroke={chartGridColor} strokeDasharray="3 3" />
+              <XAxis dataKey="year" tick={chartAxisStyle} tickLine={false} axisLine={{ stroke: chartGridColor }} />
+              <YAxis tick={chartAxisStyle} tickLine={false} axisLine={{ stroke: chartGridColor }} />
+              <Tooltip contentStyle={chartTooltipStyle} formatter={(value) => chartMoney(value, currency)} />
+              <Legend />
+              <Bar dataKey="revenue" name="Revenue" fill="#0f3d5e" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="ebitda" name="EBITDA" fill="#0f766e" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+          <MetricCard label="Latest revenue" value={money(latestHistorical?.revenue ?? Number.NaN, currency)} helper="Imported operating scale" />
+          <MetricCard label="Latest EBITDA" value={money(latestHistorical?.ebitda ?? Number.NaN, currency)} helper={`Margin ${pct(latestMargin)}`} />
+          <MetricCard label="Normalized EBITDA" value={money(normalizedEbitda, currency)} helper="Latest EBITDA after adjustments" />
+          <MetricCard label="Revenue change" value={pct(revenueChange)} helper="Change from first historical year to latest year" />
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 xl:col-span-2">
+          <div className="grid gap-3 md:grid-cols-3">
+            <OutputRow label="App industry" value={industry || "Not set"} />
+            <OutputRow label="Benchmark sector" value={damodaranIndustry || "Auto-match pending"} />
+            <OutputRow label="Historical periods" value={`${historicals.length}`} />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 function NumberField({ label, value, onChange, percent = false }: { label: string; value: number; onChange: (value: number) => void; percent?: boolean }) {
   return (
     <div className="space-y-1.5">
-      <Label>{label}</Label>
+      <Label>{percent ? `${label} (%)` : label}</Label>
       <NumericInput value={value} percent={percent} onChange={onChange} />
     </div>
   );
@@ -954,7 +988,6 @@ export default function Home() {
   const [workspaceStarted, setWorkspaceStarted] = useState(false);
   const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(1);
   const [wizardInput, setWizardInput] = useState<WizardInput>(defaultWizardInput);
-  const [mode, setMode] = useState<ValuationMode>("simple");
   const [input, setInput] = useState<ValuationInput>(() => blankValuationInput);
   const [simpleInput, setSimpleInput] = useState<SimpleModeInput>(defaultSimpleModeInput);
   const [companyData, setCompanyData] = useState<CompanyFinancialData | null>(null);
@@ -1124,6 +1157,18 @@ export default function Home() {
     const latestEbitda = data ? latestEbitdaYear(data) : undefined;
     const pkdCode = firstAvailableText(baseSimpleInput.pkdCode, profile?.pkdCode, data?.pkdCode);
     const pkdSuggestion = suggestIndustryTemplateFromPkd(pkdCode);
+    const damodaranSuggestion = suggestDamodaranEuropeIndustry({
+      pkdCode,
+      appIndustry: pkdSuggestion?.industryTemplateName ?? baseSimpleInput.industry,
+      description: firstAvailableText("", data?.pkdDescription, profile?.companyName, data?.companyName),
+    });
+    const damodaranBenchmark = damodaranSuggestion.damodaranIndustry
+      ? getDamodaranEuropeBenchmark({
+        pkdCode,
+        appIndustry: pkdSuggestion?.industryTemplateName ?? baseSimpleInput.industry,
+        description: firstAvailableText("", data?.pkdDescription, profile?.companyName, data?.companyName),
+      })
+      : null;
     const nextSimpleInput: SimpleModeInput = {
       ...baseSimpleInput,
       companyName: firstAvailableText(baseSimpleInput.companyName, profile?.companyName, data?.companyName),
@@ -1136,7 +1181,7 @@ export default function Home() {
       shareCapital: dataPointText(profile?.shareCapital, baseSimpleInput.shareCapital),
       registrationStatus: dataPointText(profile?.registrationStatus, baseSimpleInput.registrationStatus),
       website: firstAvailableText(baseSimpleInput.website, data?.website),
-      industry: pkdSuggestion?.industryTemplateName ?? baseSimpleInput.industry,
+      industry: damodaranSuggestion.damodaranIndustry ?? pkdSuggestion?.industryTemplateName ?? baseSimpleInput.industry,
       latestRevenue: typeof latestRevenue?.revenue?.value === "number" ? latestRevenue.revenue.value : baseSimpleInput.latestRevenue,
       latestEbitda: typeof latestEbitda?.ebitda?.value === "number" ? latestEbitda.ebitda.value : baseSimpleInput.latestEbitda,
       cash: typeof data?.cash?.value === "number" ? data.cash.value : baseSimpleInput.cash,
@@ -1165,27 +1210,72 @@ export default function Home() {
       historicals: balanceSheetImport.historicals,
       bridge: balanceSheetImport.bridge,
       workingCapital: balanceSheetImport.workingCapital,
+      marketMultiples: damodaranBenchmark?.industry ? {
+        ...baseInput.marketMultiples,
+        evEbitdaMultiple: damodaranBenchmark.industry.positiveEbitdaEvEbitda ?? baseInput.marketMultiples.evEbitdaMultiple,
+        evRevenueMultiple: damodaranBenchmark.industry.evSales ?? baseInput.marketMultiples.evRevenueMultiple,
+        source: {
+          ...baseInput.marketMultiples.source,
+          kind: "damodaranSector",
+          label: `Damodaran Europe - ${damodaranBenchmark.damodaranIndustry}`,
+          sourceUrl: damodaranBenchmark.sourceUrl,
+          sourceDate: damodaranBenchmark.sourceDate,
+          confidence: damodaranBenchmark.confidence,
+          approvalStatus: "draft",
+          rationale: `${damodaranBenchmark.rationale} Public-market Europe sector benchmark; review SME size, liquidity, control, and company-specific adjustments before approval.`,
+          damodaranIndustry: damodaranBenchmark.damodaranIndustry ?? undefined,
+          region: damodaranBenchmark.region,
+          dataset: damodaranBenchmark.source,
+          sourceFile: damodaranBenchmark.sourceUrl,
+          sourceUpdatedAt: damodaranBenchmark.sourceDate,
+        },
+      } : baseInput.marketMultiples,
       importMetadata: balanceSheetImport.importMetadata,
     };
     const seeded = data && data.years.length > 0 ? seedForecastFromHistoricals(inputWithImports) : { input: inputWithImports, seed: null };
-    const template = pkdSuggestion ? getIndustryTemplate(pkdSuggestion.industryTemplateName) : null;
+    const template = !damodaranBenchmark?.industry && pkdSuggestion ? getIndustryTemplate(pkdSuggestion.industryTemplateName) : null;
     const templateAppliedInput = template ? applyIndustryTemplate(seeded.input, template) : seeded.input;
     const finalInput = seeded.seed ? {
       ...templateAppliedInput,
+      profile: {
+        ...templateAppliedInput.profile,
+        industry: damodaranBenchmark?.damodaranIndustry ?? templateAppliedInput.profile.industry,
+      },
       forecast: seeded.input.forecast,
       workingCapital: seeded.input.workingCapital,
-      wacc: { ...templateAppliedInput.wacc, taxRate: seeded.input.wacc.taxRate },
-    } : templateAppliedInput;
+      wacc: {
+        ...templateAppliedInput.wacc,
+        beta: damodaranBenchmark?.industry?.cashAdjustedUnleveredBeta ?? templateAppliedInput.wacc.beta,
+        taxRate: seeded.input.wacc.taxRate,
+      },
+    } : {
+      ...templateAppliedInput,
+      profile: {
+        ...templateAppliedInput.profile,
+        industry: damodaranBenchmark?.damodaranIndustry ?? templateAppliedInput.profile.industry,
+      },
+      wacc: {
+        ...templateAppliedInput.wacc,
+        beta: damodaranBenchmark?.industry?.cashAdjustedUnleveredBeta ?? templateAppliedInput.wacc.beta,
+      },
+    };
 
     return {
       input: finalInput,
       simpleInput: simpleInputFromValuationInput(finalInput),
       pkdSuggestion,
+      damodaranSuggestion,
       seed: seeded.seed,
     };
   }
 
-  function buildImportedDataSummary(profile: CompanyProfileData | null, data: CompanyFinancialData | null, suggestion: PkdIndustrySuggestion | null, forecastGenerated: boolean): ImportedDataSummary {
+  function buildImportedDataSummary(
+    profile: CompanyProfileData | null,
+    data: CompanyFinancialData | null,
+    suggestion: PkdIndustrySuggestion | null,
+    damodaranSuggestion: DamodaranEuropeSuggestion | null,
+    forecastGenerated: boolean,
+  ): ImportedDataSummary {
     const latest = data?.years[0];
     return {
       sources: [profile?.source, data?.source].filter((source): source is string => Boolean(source)),
@@ -1193,7 +1283,9 @@ export default function Home() {
       latestFinancialYear: latest?.year ?? null,
       revenue: typeof latest?.revenue?.value === "number" ? latest!.revenue.value : null,
       ebitda: typeof latest?.ebitda?.value === "number" ? latest!.ebitda.value : null,
-      industrySuggestion: suggestion?.industryTemplateName ?? "",
+      industrySuggestion: damodaranSuggestion?.damodaranIndustry
+        ? `Damodaran Europe: ${damodaranSuggestion.damodaranIndustry}`
+        : suggestion?.industryTemplateName ?? "",
       forecastGenerated,
     };
   }
@@ -1587,7 +1679,7 @@ export default function Home() {
     ];
 
     if (!fetchedKrsProfile && !fetchedCompanyData) {
-      setCombinedImportPreview({ krsProfile: null, companyData: null, pkdSuggestion: null, seed: null, notes: [], warnings });
+      setCombinedImportPreview({ krsProfile: null, companyData: null, pkdSuggestion: null, damodaranSuggestion: null, seed: null, notes: [], warnings });
       setCombinedImportStatus("No company data could be fetched. Use manual inputs or try another KRS.");
       return;
     }
@@ -1600,7 +1692,7 @@ export default function Home() {
       ...(imported.input.importMetadata?.bridge?.warnings ?? []),
       ...(imported.input.importMetadata?.workingCapital?.warnings ?? []),
     ];
-    const preview = { krsProfile: fetchedKrsProfile, companyData: fetchedCompanyData, pkdSuggestion: imported.pkdSuggestion, seed: imported.seed, notes, warnings };
+    const preview = { krsProfile: fetchedKrsProfile, companyData: fetchedCompanyData, pkdSuggestion: imported.pkdSuggestion, damodaranSuggestion: imported.damodaranSuggestion, seed: imported.seed, notes, warnings };
     setKrsProfile(fetchedKrsProfile);
     setCompanyData(fetchedCompanyData);
     setCombinedImportPreview(preview);
@@ -1628,7 +1720,7 @@ export default function Home() {
     }));
     setForecastSeedNotes(imported.seed?.notes ?? []);
     setForecastAutoSeeded(Boolean(imported.seed));
-    setImportedDataSummary(buildImportedDataSummary(preview.krsProfile, preview.companyData, imported.pkdSuggestion, Boolean(imported.seed)));
+    setImportedDataSummary(buildImportedDataSummary(preview.krsProfile, preview.companyData, imported.pkdSuggestion, imported.damodaranSuggestion, Boolean(imported.seed)));
     refreshCoreMarketInputs(imported.input.profile.country, imported.input.profile.industry);
     setWizardImportApplied(true);
     setCombinedImportStatus("Company data confirmed and applied. Choose a valuation type to continue.");
@@ -1796,93 +1888,6 @@ export default function Home() {
     });
   }
 
-  function applyImportedCompanyData() {
-    if (!companyData) {
-      setBizRaportStatus("Fetch BizRaport data before applying.");
-      return;
-    }
-    setPeerBenchmarks(null);
-    setPeerBenchmarkStatus("Comparable Companies peer screen needs to be refreshed after importing company data.");
-    setBenchmarkAssistant(null);
-    setBenchmarkAssistantStatus("Benchmark Assistant needs to be rerun after importing company data.");
-    const latestRevenue = latestRevenueYear(companyData);
-    const latestEbitda = latestEbitdaYear(companyData);
-    const companyName = companyData.companyName?.value || input.profile.companyName;
-    const registrationNumber = companyData.krs?.value || companyData.nip?.value || input.profile.registrationNumber;
-    const pkdCode = companyData.pkdCode?.value || input.profile.pkdCode;
-    const website = companyData.website?.value || input.profile.website;
-    const legalForm = companyData.legalForm?.value || input.profile.legalForm;
-
-    if (mode === "simple") {
-      const nextSimpleInput: SimpleModeInput = {
-        ...simpleInput,
-        companyName: String(companyName),
-        registrationNumber: String(registrationNumber),
-        website: website ? String(website) : simpleInput.website,
-        pkdCode: pkdCode ? String(pkdCode) : "",
-        legalForm: legalForm ? String(legalForm) : simpleInput.legalForm,
-        latestRevenue: typeof latestRevenue?.revenue?.value === "number" ? latestRevenue.revenue.value : simpleInput.latestRevenue,
-        latestEbitda: typeof latestEbitda?.ebitda?.value === "number" ? latestEbitda.ebitda.value : simpleInput.latestEbitda,
-      };
-      const baseInput = buildValuationInputFromSimpleMode(nextSimpleInput);
-      const inputWithImportedHistoricals = {
-        ...baseInput,
-        historicals: importedYearsToHistoricals(companyData, baseInput),
-        profile: { ...baseInput.profile, website: website ? String(website) : baseInput.profile.website, pkdCode: pkdCode ? String(pkdCode) : "", legalForm: legalForm ? String(legalForm) : baseInput.profile.legalForm },
-      };
-      const balanceSheetImport = applyImportedBalanceSheet(companyData, inputWithImportedHistoricals, inputWithImportedHistoricals.historicals);
-      const seeded = seedForecastFromHistoricals({
-        ...inputWithImportedHistoricals,
-        historicals: balanceSheetImport.historicals,
-        bridge: balanceSheetImport.bridge,
-        workingCapital: balanceSheetImport.workingCapital,
-        importMetadata: balanceSheetImport.importMetadata,
-      });
-      setSimpleInput({ ...nextSimpleInput, expectedAnnualRevenueGrowth: seeded.input.forecast.revenueGrowth[0], expectedEbitdaMargin: seeded.input.forecast.ebitdaMargin[0] });
-      setForecastSeedNotes([...seeded.seed.notes, ...balanceSheetImport.warnings]);
-      setForecastAutoSeeded(true);
-      setInput({
-        ...seeded.input,
-        historicals: balanceSheetImport.historicals,
-        bridge: balanceSheetImport.bridge,
-        workingCapital: balanceSheetImport.workingCapital,
-        importMetadata: balanceSheetImport.importMetadata,
-      });
-    } else {
-      const importedYears = importedYearsForHistoricals(companyData);
-      setInput((current) => {
-        const importedHistoricals = current.historicals.map((historical, index) => {
-          const imported = importedYears[index];
-          return imported ? {
-            ...historical,
-            year: imported.year,
-            revenue: typeof imported.revenue?.value === "number" ? imported.revenue.value : historical.revenue,
-            ebitda: typeof imported.ebitda?.value === "number" ? imported.ebitda.value : historical.ebitda,
-            depreciation: typeof imported.depreciation?.value === "number" ? imported.depreciation.value : historical.depreciation,
-            capex: 0,
-          } : historical;
-        });
-        const balanceSheetImport = applyImportedBalanceSheet(companyData, current, importedHistoricals);
-        return {
-          ...current,
-          profile: {
-            ...current.profile,
-            companyName: String(companyName),
-            registrationNumber: String(registrationNumber),
-            website: website ? String(website) : current.profile.website,
-            pkdCode: pkdCode ? String(pkdCode) : "",
-            legalForm: legalForm ? String(legalForm) : current.profile.legalForm,
-          },
-          historicals: balanceSheetImport.historicals,
-          bridge: balanceSheetImport.bridge,
-          workingCapital: balanceSheetImport.workingCapital,
-          importMetadata: balanceSheetImport.importMetadata,
-        };
-      });
-    }
-    setBizRaportStatus("Imported data applied after user confirmation.");
-  }
-
   function refreshMarketDataPlaceholder() {
     const fetchedAt = new Date().toISOString();
     const damodaran = createDamodaranManualSeedSnapshot(fetchedAt);
@@ -1930,79 +1935,45 @@ export default function Home() {
   function startValuation() {
     setDlomManuallyEdited(false);
     if (wizardImportApplied && companyData?.years.length) {
-      setMode(wizardInput.valuationType);
       setWorkspaceStarted(true);
       return;
     }
 
-    if (wizardInput.valuationType === "simple") {
-      const nextSimpleInput: SimpleModeInput = {
-        companyName: wizardInput.companyName,
-        country: wizardInput.country,
-        currency: wizardInput.currency,
-        registrationNumber: wizardInput.registrationNumber,
-        nip: wizardInput.nip,
-        regon: wizardInput.regon,
-        pkdCode: wizardInput.pkdCode,
-        legalForm: wizardInput.legalForm,
-        address: wizardInput.address,
-        shareCapital: wizardInput.shareCapital,
-        registrationStatus: wizardInput.registrationStatus,
-        website: wizardInput.website,
-        industry: wizardInput.industry,
-        latestRevenue: wizardInput.latestRevenue,
-        latestEbitda: wizardInput.latestEbitda,
-        cash: wizardInput.cash,
-        debt: wizardInput.debt,
-        expectedAnnualRevenueGrowth: wizardInput.expectedAnnualRevenueGrowth,
-        expectedEbitdaMargin: wizardInput.expectedEbitdaMargin,
-        valuationDate: wizardInput.valuationDate,
-      };
-      const baseInput = buildValuationInputFromSimpleMode(nextSimpleInput);
-      const template = getIndustryTemplate(wizardInput.industryTemplateName);
-      const nextInput = wizardInput.applyIndustryTemplate && template ? applyIndustryTemplate(baseInput, template) : baseInput;
-      setSimpleInput(simpleInputFromValuationInput(nextInput));
-      setInput(nextInput);
-      setMode("simple");
-      refreshCoreMarketInputs(nextInput.profile.country, nextInput.profile.industry);
-    } else {
-      const manualSimpleInput: SimpleModeInput = {
-        companyName: wizardInput.companyName,
-        country: wizardInput.country,
-        currency: wizardInput.currency,
-        registrationNumber: wizardInput.registrationNumber,
-        nip: wizardInput.nip,
-        regon: wizardInput.regon,
-        pkdCode: wizardInput.pkdCode,
-        legalForm: wizardInput.legalForm,
-        address: wizardInput.address,
-        shareCapital: wizardInput.shareCapital,
-        registrationStatus: wizardInput.registrationStatus,
-        website: wizardInput.website,
-        industry: wizardInput.industry,
-        latestRevenue: wizardInput.latestRevenue,
-        latestEbitda: wizardInput.latestEbitda,
-        cash: wizardInput.cash,
-        debt: wizardInput.debt,
-        expectedAnnualRevenueGrowth: wizardInput.expectedAnnualRevenueGrowth,
-        expectedEbitdaMargin: wizardInput.expectedEbitdaMargin,
-        valuationDate: wizardInput.valuationDate,
-      };
-      const baseInput = buildValuationInputFromSimpleMode(manualSimpleInput);
-      const template = getIndustryTemplate(wizardInput.industryTemplateName);
-      const nextInput = wizardInput.applyIndustryTemplate && template ? applyIndustryTemplate(baseInput, template) : baseInput;
-      setInput(nextInput);
-      setSimpleInput(simpleInputFromValuationInput(nextInput));
-      setMode("professional");
-      refreshCoreMarketInputs(nextInput.profile.country, nextInput.profile.industry);
-    }
+    const manualSimpleInput: SimpleModeInput = {
+      companyName: wizardInput.companyName,
+      country: wizardInput.country,
+      currency: wizardInput.currency,
+      registrationNumber: wizardInput.registrationNumber,
+      nip: wizardInput.nip,
+      regon: wizardInput.regon,
+      pkdCode: wizardInput.pkdCode,
+      legalForm: wizardInput.legalForm,
+      address: wizardInput.address,
+      shareCapital: wizardInput.shareCapital,
+      registrationStatus: wizardInput.registrationStatus,
+      website: wizardInput.website,
+      industry: wizardInput.industry,
+      latestRevenue: wizardInput.latestRevenue,
+      latestEbitda: wizardInput.latestEbitda,
+      cash: wizardInput.cash,
+      debt: wizardInput.debt,
+      expectedAnnualRevenueGrowth: wizardInput.expectedAnnualRevenueGrowth,
+      expectedEbitdaMargin: wizardInput.expectedEbitdaMargin,
+      valuationDate: wizardInput.valuationDate,
+    };
+    const baseInput = buildValuationInputFromSimpleMode(manualSimpleInput);
+    const template = getIndustryTemplate(wizardInput.industryTemplateName);
+    const nextInput = wizardInput.applyIndustryTemplate && template ? applyIndustryTemplate(baseInput, template) : baseInput;
+    setInput(nextInput);
+    setSimpleInput(simpleInputFromValuationInput(nextInput));
+    refreshCoreMarketInputs(nextInput.profile.country, nextInput.profile.industry);
     setWorkspaceStarted(true);
   }
 
   function startNewValuation() {
     const nextBlankInput = createBlankValuationInput();
     const nextSimpleInput = simpleInputFromValuationInput(nextBlankInput);
-    setWizardInput({ ...nextSimpleInput, valuationType: "simple", industryTemplateName: "", applyIndustryTemplate: false });
+    setWizardInput({ ...nextSimpleInput, industryTemplateName: "", applyIndustryTemplate: false });
     setSimpleInput(nextSimpleInput);
     setInput(nextBlankInput);
     setKrsProfile(null);
@@ -2032,7 +2003,6 @@ export default function Home() {
     setBetaManuallyEdited(false);
     setDlomManuallyEdited(false);
     setWizardStep(1);
-    setMode("simple");
     setWorkspaceStarted(false);
   }
 
@@ -2067,11 +2037,6 @@ export default function Home() {
       industryTemplateName: suggestion.industryTemplateName,
       applyIndustryTemplate: true,
     }));
-  }
-
-  function switchMode(nextMode: ValuationMode) {
-    setSimpleInput(simpleInputFromValuationInput(input));
-    setMode(nextMode);
   }
 
   function updateHistorical(index: number, key: keyof ValuationInput["historicals"][number], value: number) {
@@ -2131,21 +2096,73 @@ export default function Home() {
     downloadTextFile("sme-dcf-valuation-tables.csv", buildCombinedCsvExport(model.valuationReport), "text/csv");
   }
 
+  function downloadExcelReport() {
+    downloadTextFile(
+      "valuation-executive-summary.xls",
+      buildExecutiveExcelWorkbookXml(model.valuationReport),
+      "application/vnd.ms-excel",
+    );
+  }
+
   function openPdfReport() {
-    const reportWindow = window.open("", "_blank", "noopener,noreferrer");
-    if (!reportWindow) {
+    const reportHtml = buildExecutiveSummaryPdfHtml(model.valuationReport);
+    const printFrame = document.createElement("iframe");
+    printFrame.title = "Valuation executive summary print frame";
+    printFrame.style.position = "fixed";
+    printFrame.style.right = "0";
+    printFrame.style.bottom = "0";
+    printFrame.style.width = "0";
+    printFrame.style.height = "0";
+    printFrame.style.border = "0";
+    printFrame.style.opacity = "0";
+    document.body.appendChild(printFrame);
+
+    const printWindow = printFrame.contentWindow;
+    const printDocument = printWindow?.document;
+    if (!printWindow || !printDocument) {
+      document.body.removeChild(printFrame);
+      downloadTextFile("valuation-executive-summary.html", reportHtml, "text/html;charset=utf-8");
       return;
     }
-    reportWindow.document.open();
-    reportWindow.document.write(buildPdfReportHtml(model.valuationReport));
-    reportWindow.document.close();
-    reportWindow.focus();
-    setTimeout(() => reportWindow.print(), 400);
+
+    printDocument.open();
+    printDocument.write(reportHtml);
+    printDocument.close();
+
+    let hasPrinted = false;
+    const printReport = () => {
+      if (hasPrinted) {
+        return;
+      }
+      hasPrinted = true;
+      printWindow.focus();
+      printWindow.print();
+      setTimeout(() => {
+        if (printFrame.parentNode) {
+          document.body.removeChild(printFrame);
+        }
+      }, 60000);
+    };
+
+    printFrame.onload = printReport;
+    setTimeout(() => {
+      if (printFrame.parentNode) {
+        printReport();
+      }
+    }, 1000);
   }
 
   const normalizedEbitda = normalizeLatestEbitda(input.historicals, input.normalizationAdjustments);
   const adjustmentTotal = sumNormalizationAdjustments(input.normalizationAdjustments);
   const normalizationMarginUplift = calculateNormalizationMarginUplift(input.historicals, input.normalizationAdjustments);
+  const currentDcfAdjustedEquityValue = model.discounts.adjustedEquityValue;
+  const scenarioRiskRows = model.scenarioAnalysis.map((scenario) => {
+    const deltaValue = scenario.adjustedEquityValue - currentDcfAdjustedEquityValue;
+    const deltaPercent = currentDcfAdjustedEquityValue !== 0 ? deltaValue / Math.abs(currentDcfAdjustedEquityValue) : Number.NaN;
+    return { ...scenario, deltaValue, deltaPercent };
+  });
+  const bearScenario = scenarioRiskRows.find((scenario) => scenario.name === "Bear") ?? scenarioRiskRows[0];
+  const bullScenario = scenarioRiskRows.find((scenario) => scenario.name === "Bull") ?? scenarioRiskRows[scenarioRiskRows.length - 1];
   const wizardIndustryTemplate = getIndustryTemplate(wizardInput.industryTemplateName);
   const professionalIndustryTemplate = getIndustryTemplate(input.profile.industry);
   const wizardPkdSuggestion = suggestIndustryTemplateFromPkd(wizardInput.pkdCode);
@@ -2228,6 +2245,30 @@ export default function Home() {
       label: "Market inputs",
       status: riskFreeRateSource || erpSource || betaSource ? riskFreeRateSource && erpSource && betaSource ? "connected" : "partial" : "manual",
       detail: riskFreeRateSource && erpSource && betaSource ? "Risk-free rate, ERP, and beta sources are loaded." : "Some WACC market sources are still manual.",
+    },
+  ];
+  const benchmarkCoverageItems: BenchmarkCoverageItem[] = [
+    ...dataReadinessItems.map((item): BenchmarkCoverageItem => ({
+      ...item,
+      group: item.status === "connected" ? "Auto-filled" : item.status === "partial" ? "Review" : "Manual",
+    })),
+    {
+      label: "DLOM",
+      status: input.discounts.lackOfMarketabilitySource === "financialCraftBenchmark" ? "connected" : "partial",
+      detail: input.discounts.lackOfMarketabilitySource === "financialCraftBenchmark" ? `Liquidity discount auto-filled at ${pct(input.discounts.lackOfMarketability)}.` : "Liquidity discount is a manual override.",
+      group: input.discounts.lackOfMarketabilitySource === "financialCraftBenchmark" ? "Auto-filled" : "Review",
+    },
+    {
+      label: "Key-person risk",
+      status: input.discounts.keyPersonDiscount > 0 ? "partial" : "manual",
+      detail: "Company-specific judgment; benchmark data rarely captures owner dependence.",
+      group: "Manual",
+    },
+    {
+      label: "Customer concentration",
+      status: input.discounts.customerConcentrationDiscount > 0 ? "partial" : "manual",
+      detail: "Manual unless customer concentration data is provided.",
+      group: "Manual",
     },
   ];
   const connectedDataSources = dataReadinessItems.filter((item) => item.status === "connected").length;
@@ -2321,10 +2362,6 @@ export default function Home() {
                     <Search size={17} />
                     Fetch and build model
                   </button>
-                  <button className="inline-flex max-w-full items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-800 shadow-sm transition hover:border-teal-700 hover:text-teal-800" onClick={() => setWizardStep(3)}>
-                    Manual fallback
-                    <ArrowRight size={17} />
-                  </button>
                 </div>
               </div>
               <div className="grid min-w-0 gap-3 rounded-lg border border-slate-200 bg-white/78 p-4 text-sm text-slate-700 shadow-sm backdrop-blur">
@@ -2345,19 +2382,19 @@ export default function Home() {
             </div>
           </div>
 
-          <div className={`grid gap-3 ${wizardImportApplied && companyData?.years.length ? "md:grid-cols-2" : "md:grid-cols-3"}`}>
-            {[1, 2, ...(wizardImportApplied && companyData?.years.length ? [] : [3])].map((step) => (
+          <div className={`grid gap-3 ${wizardImportApplied ? "md:grid-cols-2" : ""}`}>
+            {[1, ...(wizardImportApplied ? [2] : [])].map((step) => (
               <button key={step} className={`rounded-lg border p-4 text-left text-sm font-bold shadow-sm transition ${wizardStep === step ? "border-slate-950 bg-slate-950 text-white shadow-lg shadow-slate-900/10" : "border-slate-200 bg-white text-slate-700 hover:border-teal-500 hover:bg-slate-50"}`} onClick={() => setWizardStep(step as 1 | 2 | 3)}>
-                <span className={`text-xs uppercase tracking-[0.2em] ${wizardStep === step ? "text-slate-300" : "text-slate-500"}`}>{step === 1 ? "Company data" : step === 2 ? "Model path" : "Fallback"}</span>
-                <span className="mt-1 block">{step === 1 ? "Fetch and build" : step === 2 ? "Choose output depth" : "Manual numbers"}</span>
+                <span className={`text-xs uppercase tracking-[0.2em] ${wizardStep === step ? "text-slate-300" : "text-slate-500"}`}>{step === 1 ? "Company data" : step === 2 ? "Review" : "Manual fallback"}</span>
+                <span className="mt-1 block">{step === 1 ? "Fetch KRS + BizRaport" : step === 2 ? "Confirm imported model" : "Enter basic numbers"}</span>
               </button>
             ))}
           </div>
 
           <Card>
             <CardHeader>
-              <CardTitle>{wizardStep === 1 ? "Company lookup" : wizardStep === 2 ? "Valuation path" : "Manual financial fallback"}</CardTitle>
-              <CardDescription>{wizardStep === 1 ? "One action builds the initial model from available Polish company data." : wizardStep === 2 ? "Choose the output depth after source data has been applied." : "Use manual inputs only when imported financials are unavailable or skipped."}</CardDescription>
+              <CardTitle>{wizardStep === 1 ? "Company lookup" : wizardStep === 2 ? "Review imported model" : "Manual financial fallback"}</CardTitle>
+              <CardDescription>{wizardStep === 1 ? "One action builds the initial model from available Polish company data." : wizardStep === 2 ? "Check the imported company profile and financial baseline, then start the valuation." : "Use manual inputs only when imported financials are unavailable or intentionally skipped."}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               {wizardStep === 1 && (
@@ -2386,23 +2423,18 @@ export default function Home() {
                   </div>
 
                   {combinedImportPreview ? <><DataReadinessPanel items={dataReadinessItems} score={sourceReadinessScore} /><CombinedCompanyImportPreview preview={combinedImportPreview} currency={wizardInput.currency} onConfirm={() => importCombinedCompanyData(combinedImportPreview)} /></> : null}
+                  <details className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                    <summary className="cursor-pointer text-sm font-bold text-slate-800">Advanced: continue without KRS/BizRaport</summary>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">Use this only when the registry or BizRaport data is unavailable. The model will start from a manual financial baseline.</p>
+                    <button className="mt-3 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 transition hover:border-teal-600 hover:text-teal-800" onClick={() => setWizardStep(3)}>Open manual fallback</button>
+                  </details>
                 </div>
               )}
 
               {wizardStep === 2 && (
                 <div className="space-y-5">
-                  {importedDataSummary ? <><DataReadinessPanel items={dataReadinessItems} score={sourceReadinessScore} /><ImportedDataSummaryCard summary={importedDataSummary} /></> : null}
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <button className={`rounded-lg border p-5 text-left transition ${wizardInput.valuationType === "simple" ? "border-teal-700 bg-teal-50" : "border-slate-200 bg-white hover:border-teal-500"}`} onClick={() => updateWizard("valuationType", "simple")}>
-                      <p className="text-lg font-bold text-slate-950">Conclusion view</p>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">A clean decision view: valuation range, confidence, source readiness, key risks, and next steps.</p>
-                    </button>
-                    <button className={`rounded-lg border p-5 text-left transition ${wizardInput.valuationType === "professional" ? "border-slate-950 bg-slate-50" : "border-slate-200 bg-white hover:border-slate-500"}`} onClick={() => updateWizard("valuationType", "professional")}>
-                      <p className="text-lg font-bold text-slate-950">Workbench view</p>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">The same valuation with editable assumptions, method detail, source trails, diagnostics, and exports.</p>
-                    </button>
-                  </div>
-                  {wizardImportApplied && companyData?.years.length ? <Badge className="border-teal-200 bg-teal-50 text-teal-800">Model prefilled from KRS + BizRaport - Step 3 will be skipped</Badge> : <p className="text-sm text-slate-500">No imported financial years are available yet, so the wizard will ask for a manual financial starting point.</p>}
+                  {importedDataSummary ? <><DataReadinessPanel items={dataReadinessItems} score={sourceReadinessScore} /><ImportedDataSummaryCard summary={importedDataSummary} /></> : <p className="text-sm text-slate-500">No imported data has been applied yet. Fetch company data first or use the manual fallback.</p>}
+                  {wizardImportApplied && companyData?.years.length ? <Badge className="border-teal-200 bg-teal-50 text-teal-800">Ready: model prefilled from KRS + BizRaport</Badge> : null}
                 </div>
               )}
 
@@ -2420,8 +2452,8 @@ export default function Home() {
               <div className="flex flex-col gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:items-center sm:justify-between">
                 <button className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-teal-600 hover:text-teal-800" onClick={() => setWizardStep((current) => (current === 1 ? 1 : ((current - 1) as 1 | 2 | 3)))}>Back</button>
                 <div className="flex gap-3">
-                  {wizardStep === 1 && <button className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={() => setWizardStep(2)}>Skip lookup</button>}
-                  {wizardStep === 2 && (wizardImportApplied && companyData?.years.length ? <button className="rounded-xl bg-teal-700 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={startValuation}>Start valuation</button> : <button className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={() => setWizardStep(3)}>Continue</button>)}
+                  {wizardStep === 1 && null}
+                  {wizardStep === 2 && (wizardImportApplied && companyData?.years.length ? <button className="rounded-xl bg-teal-700 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={startValuation}>Start valuation</button> : <button className="rounded-xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={() => setWizardStep(1)}>Fetch company first</button>)}
                   {wizardStep === 3 && <button className="rounded-xl bg-teal-700 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800" onClick={startValuation}>Start valuation</button>}
                 </div>
               </div>
@@ -2438,10 +2470,9 @@ export default function Home() {
         <div className="hero-panel rounded-xl p-6">
           <div className="flex min-w-0 flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
             <div className="min-w-0">
-              <Badge className="border-teal-200 bg-teal-50 text-teal-800">Polish SME valuation workbench</Badge>
               <h1 className="mt-4 max-w-4xl break-words text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl lg:text-5xl">{input.profile.companyName}</h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-                One headline valuation range with source quality, method evidence, editable assumptions, model checks, and export-ready outputs.
+                One valuation workflow: company evidence, headline value, assumption review, risk checks, and export.
               </p>
             </div>
             <div className="grid gap-2 rounded-lg border border-slate-200 bg-white/80 p-4 text-sm text-slate-700 shadow-sm backdrop-blur sm:min-w-[320px]">
@@ -2453,8 +2484,14 @@ export default function Home() {
           </div>
         </div>
 
-        <WorkflowNav sections={workbenchSections} />
-        {mode === "professional" ? <StageScrollRail sections={workbenchSections} activeId={activeStageId} progress={scrollProgress} /> : null}
+        <CompanyOperatingSnapshot
+          historicals={input.historicals}
+          currency={input.profile.currency}
+          industry={input.profile.industry}
+          damodaranIndustry={activeDamodaranIndustry}
+          normalizedEbitda={normalizedEbitda}
+          latestYear={importedDataSummary?.latestFinancialYear ?? input.historicals[input.historicals.length - 1]?.year ?? null}
+        />
 
         <div id="methods" className="scroll-mt-28">
           <EngineCockpit
@@ -2468,34 +2505,10 @@ export default function Home() {
           />
         </div>
         <div id="evidence-quality" className="scroll-mt-28">
-          <DataReadinessPanel items={dataReadinessItems} score={sourceReadinessScore} />
+          <BenchmarkCoveragePanel items={benchmarkCoverageItems} score={sourceReadinessScore} />
         </div>
-        <Card className="border-slate-300 bg-white/95">
-          <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">View mode</p>
-              <p className="mt-1 text-sm text-slate-600">Same valuation, different level of detail. Switching views does not recalculate the model.</p>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2" role="tablist" aria-label="Valuation view">
-              <button aria-pressed={mode === "simple"} className={`rounded-md border px-5 py-3 text-sm font-bold transition focus:outline-none focus:ring-2 focus:ring-teal-200 ${mode === "simple" ? "border-teal-700 bg-teal-700 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-teal-600"}`} onClick={() => switchMode("simple")}>Conclusion</button>
-              <button aria-pressed={mode === "professional"} className={`rounded-md border px-5 py-3 text-sm font-bold transition focus:outline-none focus:ring-2 focus:ring-slate-200 ${mode === "professional" ? "border-slate-950 bg-slate-950 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:border-slate-950"}`} onClick={() => switchMode("professional")}>Workbench</button>
-            </div>
-          </CardContent>
-        </Card>
-
-        <WorkbenchNextSteps
-          mode={mode}
-          sourceReadinessScore={sourceReadinessScore}
-          marketMultipleSource={marketMultipleSource}
-          criticalCount={model.diagnostics.criticalCount}
-          warningCount={model.diagnostics.warningCount}
-          benchmarkAssistantStatus={benchmarkAssistantStatus}
-          peerBenchmarkStatus={peerBenchmarkStatus}
-          onOpenExtended={() => switchMode("professional")}
-        />
-
-        {mode === "simple" ? null : (
-          <>
+        <WorkflowNav sections={workbenchSections} />
+        <StageScrollRail sections={workbenchSections} activeId={activeStageId} progress={scrollProgress} />
 
         {!validation.success && (
           <Card className="border-amber-300 bg-amber-50">
@@ -2511,40 +2524,39 @@ export default function Home() {
           <Card>
             <CardHeader>
               <CardTitle>Company Profile</CardTitle>
-              <CardDescription>Core identifying inputs for the valuation memorandum.</CardDescription>
+              <CardDescription>Imported registry profile used in the valuation report.</CardDescription>
             </CardHeader>
-            <CardContent className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-1.5"><Label>Company name</Label><Input value={input.profile.companyName} onChange={(e) => update(["profile", "companyName"], e.target.value)} /></div>
-              <div className="space-y-1.5"><Label>Country</Label><Input value={input.profile.country} onChange={(e) => update(["profile", "country"], e.target.value)} /></div>
-              <div className="space-y-1.5"><Label>Currency</Label><Input value={input.profile.currency} onChange={(e) => update(["profile", "currency"], e.target.value)} /></div>
-              <div className="space-y-1.5"><Label>Industry</Label><Input value={input.profile.industry} onChange={(e) => update(["profile", "industry"], e.target.value)} /></div>
-              <div className="space-y-1.5"><Label>Registration Number</Label><Input value={input.profile.registrationNumber} onChange={(e) => update(["profile", "registrationNumber"], e.target.value)} /></div>
-              <div className="space-y-1.5"><Label>NIP</Label><Input value={input.profile.nip} onChange={(e) => update(["profile", "nip"], e.target.value)} /></div>
-              <div className="space-y-1.5"><Label>REGON</Label><Input value={input.profile.regon} onChange={(e) => update(["profile", "regon"], e.target.value)} /></div>
-              <div className="space-y-1.5"><Label>Website (optional)</Label><Input value={input.profile.website} onChange={(e) => update(["profile", "website"], e.target.value)} /></div>
-              <div className="space-y-1.5"><Label>PKD code</Label><Input value={input.profile.pkdCode} onChange={(e) => update(["profile", "pkdCode"], e.target.value)} /></div>
-              <div className="space-y-1.5"><Label>Legal form</Label><Input value={input.profile.legalForm} onChange={(e) => update(["profile", "legalForm"], e.target.value)} /></div>
-              <div className="space-y-1.5"><Label>Address</Label><Input value={input.profile.address} onChange={(e) => update(["profile", "address"], e.target.value)} /></div>
-              <div className="space-y-1.5"><Label>Share capital</Label><Input value={input.profile.shareCapital} onChange={(e) => update(["profile", "shareCapital"], e.target.value)} /></div>
-              <div className="space-y-1.5"><Label>Registration status</Label><Input value={input.profile.registrationStatus} onChange={(e) => update(["profile", "registrationStatus"], e.target.value)} /></div>
-              <div className="space-y-1.5"><Label>Valuation date</Label><Input value={input.profile.valuationDate} onChange={(e) => update(["profile", "valuationDate"], e.target.value)} /></div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader><CardTitle>Imported Data</CardTitle><CardDescription>Source data is imported in the setup wizard so the workbench stays focused on valuation decisions.</CardDescription></CardHeader>
             <CardContent className="space-y-5">
-              <div>
-                <h3 className="text-sm font-bold uppercase tracking-wide text-slate-600">Company data</h3>
-                <p className="mt-1 text-sm text-slate-500">Available source mapping: {companySources.map((source) => source.name).join(", ") || "No mapped source"}</p>
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <OutputRow label="Company" value={input.profile.companyName || "Unavailable"} />
+                <OutputRow label="KRS" value={input.profile.registrationNumber || "Unavailable"} />
+                <OutputRow label="NIP" value={input.profile.nip || "Unavailable"} />
+                <OutputRow label="REGON" value={input.profile.regon || "Unavailable"} />
+                <OutputRow label="PKD" value={input.profile.pkdCode || "Unavailable"} />
+                <OutputRow label="Legal form" value={input.profile.legalForm || "Unavailable"} />
+                <OutputRow label="Status" value={input.profile.registrationStatus || "Unavailable"} />
+                <OutputRow label="Share capital" value={input.profile.shareCapital || "Unavailable"} />
               </div>
-              {importedDataSummary ? <ImportedDataSummaryCard summary={importedDataSummary} /> : <p className="text-sm text-slate-500">No wizard import has been applied yet.</p>}
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">To run a different KRS + BizRaport import, start a new valuation. This keeps the active model from mixing old source data with new assumptions.</div>
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-1.5"><Label>Valuation date</Label><Input value={input.profile.valuationDate} onChange={(e) => update(["profile", "valuationDate"], e.target.value)} /></div>
+                <div className="space-y-1.5"><Label>Currency</Label><Input value={input.profile.currency} onChange={(e) => update(["profile", "currency"], e.target.value)} /></div>
+                <div className="space-y-1.5"><Label>Country</Label><Input value={input.profile.country} onChange={(e) => update(["profile", "country"], e.target.value)} /></div>
+              </div>
+              <details className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                <summary className="cursor-pointer text-sm font-bold text-slate-800">Edit imported profile fields</summary>
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <div className="space-y-1.5"><Label>Company name</Label><Input value={input.profile.companyName} onChange={(e) => update(["profile", "companyName"], e.target.value)} /></div>
+                  <div className="space-y-1.5"><Label>Industry</Label><Input value={input.profile.industry} onChange={(e) => update(["profile", "industry"], e.target.value)} /></div>
+                  <div className="space-y-1.5"><Label>Registration Number</Label><Input value={input.profile.registrationNumber} onChange={(e) => update(["profile", "registrationNumber"], e.target.value)} /></div>
+                  <div className="space-y-1.5"><Label>PKD code</Label><Input value={input.profile.pkdCode} onChange={(e) => update(["profile", "pkdCode"], e.target.value)} /></div>
+                  <div className="space-y-1.5 md:col-span-2"><Label>Address</Label><Input value={input.profile.address} onChange={(e) => update(["profile", "address"], e.target.value)} /></div>
+                </div>
+              </details>
             </CardContent>
           </Card>
           <Card>
-            <CardHeader><CardTitle>Industry Classification</CardTitle><CardDescription>Import KRS/BizRaport data and the app matches PKD to the closest Damodaran Europe sector automatically. Manual selection is only a fallback.</CardDescription></CardHeader>
+            <CardHeader><CardTitle>Industry Benchmark</CardTitle><CardDescription>PKD is matched automatically to the closest Damodaran Europe sector. Manual selection is only a fallback.</CardDescription></CardHeader>
             <CardContent className="space-y-4">
-              <PkdSuggestionPanel suggestion={activePkdSuggestion} />
               <div className="rounded-lg border border-teal-200 bg-teal-50 px-4 py-3">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
@@ -2556,46 +2568,50 @@ export default function Home() {
                   <Badge className={activeDamodaranIndustry ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"}>{activeDamodaranIndustry ? activeDamodaranConfidence : "auto"}</Badge>
                 </div>
               </div>
-              <div className="space-y-1.5"><Label>Manual fallback template</Label><select className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 shadow-sm focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-100" value={professionalIndustryTemplate?.name ?? ""} onChange={(event) => event.target.value ? applyTemplateToInput(event.target.value) : update(["profile", "industry"], "")}><option value="">Use automatic PKD match</option>{industryTemplates.map((template) => <option key={template.name} value={template.name}>{template.name}</option>)}</select><p className="text-xs text-slate-500">Use only when PKD is missing or the business is clearly better represented by another broad SME template.</p></div>
-              {professionalIndustryTemplate ? <TemplateAssumptionTable template={professionalIndustryTemplate} /> : <p className="text-sm text-slate-500">Select an industry template to review classification, DLOM, and tax defaults.</p>}
+              <details className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                <summary className="cursor-pointer text-sm font-bold text-slate-800">Manual fallback</summary>
+                <div className="mt-4 space-y-1.5">
+                  <Label>Broad SME template</Label>
+                  <select className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 shadow-sm focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-100" value={professionalIndustryTemplate?.name ?? ""} onChange={(event) => event.target.value ? applyTemplateToInput(event.target.value) : update(["profile", "industry"], "")}>
+                    <option value="">Keep automatic Damodaran match</option>
+                    {industryTemplates.map((template) => <option key={template.name} value={template.name}>{template.name}</option>)}
+                  </select>
+                  <p className="text-xs leading-5 text-slate-500">Use only if PKD is missing or the business is clearly better represented by another broad SME template.</p>
+                </div>
+              </details>
             </CardContent>
           </Card>
           <Card>
-            <CardHeader><CardTitle>Market Data Sources</CardTitle><CardDescription>Single evidence panel for rates, ERP, beta, sector multiples, and peer screens. Detailed source trails stay in the relevant method detail.</CardDescription></CardHeader>
+            <CardHeader><CardTitle>Benchmark Inputs</CardTitle><CardDescription>Current market assumptions used by WACC and market multiples.</CardDescription></CardHeader>
             <CardContent className="space-y-5">
-              <div className="max-w-full overflow-x-auto rounded-lg border border-slate-200 bg-white">
-                <table className="w-full min-w-[760px] text-sm">
-                  <thead><tr className="border-b bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500"><th className="p-3">Input</th><th className="p-3 text-right">Current value</th><th className="p-3">Source</th><th className="p-3">Source date / observation date</th><th className="p-3">Status</th><th className="p-3">Confidence</th></tr></thead>
-                  <tbody>
-                    {marketDataSourceRows.map((row) => (
-                      <tr key={row.input} className="border-b border-slate-100 align-top">
-                        <td className="p-3 font-semibold text-slate-800">{row.input}</td>
-                        <td className="p-3 text-right font-semibold text-slate-950">{row.currentValue}</td>
-                        <td className="p-3 text-slate-700">{row.source}</td>
-                        <td className="p-3 text-slate-600">{row.date}</td>
-                        <td className="p-3 text-slate-700">{row.status}</td>
-                        <td className="p-3"><Badge className={row.confidence === "low" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-blue-200 bg-blue-50 text-blue-800"}>{row.confidence}</Badge></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+                <MetricCard label="Risk-free rate" value={pct(input.wacc.riskFreeRate)} helper="Base rate" />
+                <MetricCard label="ERP" value={pct(input.wacc.equityRiskPremium)} helper="Equity risk premium" />
+                <MetricCard label="Beta" value={input.wacc.beta.toFixed(2)} helper="Sector beta" />
+                <MetricCard label="Sector WACC" value={betaSource?.costOfCapitalLocal !== null && betaSource?.costOfCapitalLocal !== undefined ? pct(betaSource.costOfCapitalLocal) : pct(model.wacc.wacc)} helper="Benchmark reference" />
+                <MetricCard label="EV / EBITDA" value={multiple(input.marketMultiples.evEbitdaMultiple)} helper={marketMultipleSource.approvalStatus} />
+                <MetricCard label="EV / Revenue" value={multiple(input.marketMultiples.evRevenueMultiple)} helper={marketMultipleSource.kind === "damodaranSector" ? "Sector benchmark" : "Selected benchmark"} />
               </div>
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <p className="text-sm font-semibold text-slate-950">Market multiples source</p>
-                  <Badge className={marketMultipleSource.approvalStatus === "approved" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"}>{marketMultipleSource.approvalStatus}</Badge>
-                </div>
-                <p className="mt-1 text-xs leading-5 text-slate-600">{marketMultipleSource.label}</p>
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  <OutputRow label="EV / EBITDA" value={multiple(input.marketMultiples.evEbitdaMultiple)} />
-                  <OutputRow label="EV / Revenue" value={multiple(input.marketMultiples.evRevenueMultiple)} />
-                </div>
-                <p className="mt-3 text-xs leading-5 text-slate-600">{marketMultipleIntelligence.aiAnalystRole}</p>
-              </div>
-              <div className="rounded-lg border border-teal-200 bg-teal-50 p-4 text-sm text-teal-900">Source summary updates automatically when the model starts. Manual overrides stay visible in Discount Rate and Market Multiples.</div>
               {(marketData?.notes.length || marketSources.length) ? (
                 <details className="rounded-lg border border-slate-200 bg-white p-4 text-xs leading-5 text-slate-600">
                   <summary className="cursor-pointer text-sm font-bold text-slate-800">View source audit notes</summary>
+                  <div className="mt-3 max-w-full overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                    <table className="w-full min-w-[760px] text-sm">
+                      <thead><tr className="border-b bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500"><th className="p-3">Input</th><th className="p-3 text-right">Current value</th><th className="p-3">Benchmark</th><th className="p-3">Date</th><th className="p-3">Status</th><th className="p-3">Confidence</th></tr></thead>
+                      <tbody>
+                        {marketDataSourceRows.map((row) => (
+                          <tr key={row.input} className="border-b border-slate-100 align-top">
+                            <td className="p-3 font-semibold text-slate-800">{row.input}</td>
+                            <td className="p-3 text-right font-semibold text-slate-950">{row.currentValue}</td>
+                            <td className="p-3 text-slate-700">{row.source}</td>
+                            <td className="p-3 text-slate-600">{row.date}</td>
+                            <td className="p-3 text-slate-700">{row.status}</td>
+                            <td className="p-3"><Badge className={row.confidence === "low" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-blue-200 bg-blue-50 text-blue-800"}>{row.confidence}</Badge></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                   {marketData?.notes.length ? <p className="mt-3">{marketData.notes.join(" ")}</p> : null}
                   <p className="mt-3">Configured adapters: {marketSources.map((source) => source.name).join(", ")}</p>
                 </details>
@@ -2607,8 +2623,8 @@ export default function Home() {
         <WorkflowHeader id="historical-financials" eyebrow="Assumptions" title="Historical Baseline" description="Three-year operating history used to seed revenue, profitability, capex, and working capital assumptions." status={workflowSections[1].status} />
         <Card>
           <CardHeader>
-            <CardTitle>Historical Financials for 3 Years</CardTitle>
-            <CardDescription>Actual results establish the revenue base, latest working capital, and profitability context.</CardDescription>
+            <CardTitle>Imported Historical Financials</CardTitle>
+            <CardDescription>Read-only source baseline. Use normalization and forecast assumptions below for valuation adjustments.</CardDescription>
           </CardHeader>
           <CardContent className="max-w-full overflow-x-auto">
             <table className="w-full min-w-[820px] text-sm">
@@ -2618,13 +2634,31 @@ export default function Home() {
                   <tr key={year.year} className="border-b border-slate-100">
                     <td className="py-3 font-semibold">{year.year}</td>
                     {(["revenue", "ebitda", "depreciation", "capex", "netWorkingCapital"] as const).map((key) => (
-                      <td key={key} className="pr-3"><NumericInput value={year[key]} onChange={(value) => updateHistorical(index, key, value)} /></td>
+                      <td key={key} className="py-3 pr-3 font-semibold text-slate-900">{money(year[key], input.profile.currency)}</td>
                     ))}
                     <td className="font-semibold text-teal-700">{pct(year.ebitda / year.revenue)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            <details className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <summary className="cursor-pointer text-sm font-bold text-slate-800">Manual correction of historicals</summary>
+              <div className="mt-4 max-w-full overflow-x-auto">
+                <table className="w-full min-w-[820px] text-sm">
+                  <thead><tr className="border-b text-left text-xs uppercase tracking-wide text-slate-500"><th className="py-2">Year</th><th>Revenue</th><th>EBITDA</th><th>D&A</th><th>Capex</th><th>NWC</th></tr></thead>
+                  <tbody>
+                    {input.historicals.map((year, index) => (
+                      <tr key={`edit-${year.year}`} className="border-b border-slate-100">
+                        <td className="py-3 font-semibold">{year.year}</td>
+                        {(["revenue", "ebitda", "depreciation", "capex", "netWorkingCapital"] as const).map((key) => (
+                          <td key={key} className="pr-3"><NumericInput value={year[key]} onChange={(value) => updateHistorical(index, key, value)} /></td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
           </CardContent>
         </Card>
 
@@ -2848,6 +2882,9 @@ export default function Home() {
                     <p className="mt-1 text-xs leading-5 text-teal-900">
                       {financialCraftLiquidityBenchmark.sizeLabel}: {financialCraftLiquidityBenchmark.capitalizationRange}. 1Q2026 DLOM benchmark is <strong>{pct(financialCraftLiquidityBenchmark.lackOfMarketabilityDiscount)}</strong>.
                     </p>
+                    <p className="mt-2 text-sm font-semibold text-teal-950">
+                      Current model input: {pct(input.discounts.lackOfMarketability)} {input.discounts.lackOfMarketabilitySource === "manual" ? "(manual override)" : "(auto-filled from benchmark)"}
+                    </p>
                   </div>
                   <Badge className={input.discounts.lackOfMarketabilitySource === "manual" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}>{input.discounts.lackOfMarketabilitySource === "manual" ? "manual override" : "auto applied"}</Badge>
                 </div>
@@ -2868,8 +2905,11 @@ export default function Home() {
                   },
                 }));
               }} />
+              <p className="text-xs leading-5 text-slate-500">This is the DLOM assumption used in the valuation. Editing it changes the source status to manual override.</p>
               <NumberField label="Key-person discount" value={input.discounts.keyPersonDiscount} percent onChange={(v) => update(["discounts", "keyPersonDiscount"], v)} />
+              <p className="text-xs leading-5 text-slate-500">Manual judgment: use when the company materially depends on one owner, founder, or key manager.</p>
               <NumberField label="Customer concentration discount" value={input.discounts.customerConcentrationDiscount} percent onChange={(v) => update(["discounts", "customerConcentrationDiscount"], v)} />
+              <p className="text-xs leading-5 text-slate-500">Manual judgment unless customer concentration data is available. Use for revenue dependence on a small number of customers.</p>
               <div className="rounded-xl bg-slate-50 p-4 text-sm">Sequential equity discounts: key-person, customer concentration, then DLOM. Combined discount = 1 - product of retained-value factors = <strong>{pct(model.discounts.combinedDiscountRate)}</strong><br />DLOM is applied only after the EV-to-equity bridge, not to enterprise value.</div>
             </CardContent>
           </Card>
@@ -2892,7 +2932,9 @@ export default function Home() {
           </Card>
         </div>
 
-        <div className="space-y-6">
+        <details className="rounded-xl border border-slate-300 bg-white p-4 shadow-sm">
+          <summary className="cursor-pointer text-base font-bold text-slate-950">Technical DCF schedules</summary>
+          <div className="mt-5 space-y-6">
           <Card>
             <CardHeader>
               <CardTitle>DCF-only technical metrics</CardTitle>
@@ -2994,7 +3036,8 @@ export default function Home() {
               </CardContent>
             </Card>
           </div>
-        </div>
+          </div>
+        </details>
 
         <WorkflowHeader id="market-approach" eyebrow="Method detail" title="Market Multiples" description="Source-traced EV/EBITDA and EV/Revenue evidence. AI helps select peers and rationale, but the numbers come from approved sources." status={workflowSections[6].status} />
         <Card>
@@ -3199,19 +3242,39 @@ export default function Home() {
         <WorkflowHeader id="risk" eyebrow="Risk" title="Scenarios & Sensitivity" description="Compare Bear, Base, and Bull outcomes and review WACC / terminal growth sensitivity." status={workflowSections[7].status} />
         <Card>
           <CardHeader>
-            <CardTitle>Bear / Base / Bull Scenario Analysis</CardTitle>
-            <CardDescription>Scenario outputs apply pure assumption adjustments to revenue growth, EBITDA margin, WACC, terminal growth, and DLOM. Base equals current user inputs.</CardDescription>
+            <CardTitle>DCF Scenario Risk Range</CardTitle>
+            <CardDescription>Bear, Base, and Bull are stress cases around the current DCF. They explain downside and upside risk; they are not double-counted as separate valuation methods.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-lg border border-red-100 bg-red-50 p-4">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-red-700">Downside case</p>
+                <p className="mt-2 text-xl font-bold text-red-950">{money(bearScenario?.adjustedEquityValue ?? Number.NaN, input.profile.currency)}</p>
+                <p className="mt-1 text-sm text-red-800">{pct(bearScenario?.deltaPercent ?? Number.NaN)} vs current DCF</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-white p-4">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Current DCF base</p>
+                <p className="mt-2 text-xl font-bold text-slate-950">{money(currentDcfAdjustedEquityValue, input.profile.currency)}</p>
+                <p className="mt-1 text-sm text-slate-600">Base scenario equals current DCF assumptions.</p>
+              </div>
+              <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-4">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">Upside case</p>
+                <p className="mt-2 text-xl font-bold text-emerald-950">{money(bullScenario?.adjustedEquityValue ?? Number.NaN, input.profile.currency)}</p>
+                <p className="mt-1 text-sm text-emerald-800">{pct(bullScenario?.deltaPercent ?? Number.NaN)} vs current DCF</p>
+              </div>
+            </div>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">
+              Scenario analysis keeps the model honest by moving growth, margin, WACC, terminal growth, and marketability discount together. Use it to discuss risk range, not as another standalone method in the blended valuation.
+            </div>
             <div className="max-w-full overflow-x-auto">
-              <table className="w-full min-w-[1080px] text-sm">
+              <table className="w-full min-w-[1180px] text-sm">
                 <thead>
                   <tr className="border-b text-right text-xs uppercase tracking-wide text-slate-500">
-                    <th className="py-2 text-left">Scenario</th><th>Revenue growth adj.</th><th>EBITDA margin adj.</th><th>WACC adj.</th><th>Terminal g adj.</th><th>DLOM adj.</th><th>Enterprise Value</th><th>Equity Value</th><th>Adjusted Equity Value</th><th>EV / EBITDA</th><th>TV / EV</th><th>Warnings</th>
+                    <th className="py-2 text-left">Scenario</th><th>Revenue growth adj.</th><th>EBITDA margin adj.</th><th>WACC adj.</th><th>Terminal g adj.</th><th>DLOM adj.</th><th>Enterprise Value</th><th>Equity Value</th><th>Adjusted Equity Value</th><th>Delta vs DCF</th><th>EV / EBITDA</th><th>TV / EV</th><th>Warnings</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {model.scenarioAnalysis.map((scenario) => (
+                  {scenarioRiskRows.map((scenario) => (
                     <tr key={scenario.name} className="border-b border-slate-100 text-right">
                       <td className="py-3 text-left font-semibold">{scenario.name}</td>
                       <td>{pct(scenario.assumptions.revenueGrowthAdjustment)}</td>
@@ -3222,9 +3285,10 @@ export default function Home() {
                       <td>{money(scenario.enterpriseValue, input.profile.currency)}</td>
                       <td>{money(scenario.equityValue, input.profile.currency)}</td>
                       <td className="font-semibold">{money(scenario.adjustedEquityValue, input.profile.currency)}</td>
+                      <td className={scenario.deltaValue < 0 ? "font-semibold text-red-700" : scenario.deltaValue > 0 ? "font-semibold text-emerald-700" : "font-semibold text-slate-700"}>{money(scenario.deltaValue, input.profile.currency)} ({pct(scenario.deltaPercent)})</td>
                       <td>{multiple(scenario.evToEbitda)}</td>
                       <td>{pct(scenario.terminalValueContribution)}</td>
-                      <td className="max-w-[220px] text-left text-amber-700">{scenario.warnings.length > 0 ? scenario.warnings.map((warning) => warning.message).join(" ") : "—"}</td>
+                      <td className="max-w-[220px] text-left text-amber-700">{scenario.warnings.length > 0 ? scenario.warnings.map((warning) => warning.message).join(" ") : "None"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -3232,7 +3296,7 @@ export default function Home() {
             </div>
             <div className="chart-frame">
               <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={model.scenarioAnalysis}>
+                <BarChart data={scenarioRiskRows}>
                   <CartesianGrid stroke={chartGridColor} strokeDasharray="3 3" />
                   <XAxis dataKey="name" tick={chartAxisStyle} tickLine={false} axisLine={{ stroke: chartGridColor }} />
                   <YAxis tick={chartAxisStyle} tickLine={false} axisLine={{ stroke: chartGridColor }} />
@@ -3328,21 +3392,20 @@ export default function Home() {
           </CardContent>
         </Card>
 
-        <WorkflowHeader id="export" eyebrow="Export" title="Export Package" description="Create a clean client-ready PDF report, copy the summary, or download model data for deeper review." status={workflowSections[9].status} />
+        <WorkflowHeader id="export" eyebrow="Export" title="Export Package" description="Create a short executive PDF, an auditable Excel workbook, or raw model files for deeper review." status={workflowSections[9].status} />
         <Card>
           <CardHeader>
-            <CardTitle>Export Valuation Package</CardTitle>
-            <CardDescription>Use PDF for a polished review pack. JSON and CSV remain available for audit, handoff, and offline analysis.</CardDescription>
+            <CardTitle>Export Executive Package</CardTitle>
+            <CardDescription>PDF is the client-ready summary. Excel contains the key valuation tables and audit trail. JSON and CSV remain available for technical review.</CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <button className="inline-flex items-center justify-center gap-2 rounded-md bg-slate-950 px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-teal-800" onClick={openPdfReport}><FileDown size={17} />Create PDF report</button>
-            <button className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={copyReportSummary}>Copy report summary</button>
-            <button className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={downloadJsonReport}>Download JSON</button>
-            <button className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={downloadCsvReport}>Download CSV</button>
+          <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+            <button className="inline-flex items-center justify-center gap-2 rounded-md bg-slate-950 px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-teal-800" onClick={openPdfReport}><FileDown size={17} />Create PDF summary</button>
+            <button className="inline-flex items-center justify-center gap-2 rounded-md bg-teal-700 px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-teal-800" onClick={downloadExcelReport}><FileDown size={17} />Download Excel workbook</button>
+            <button className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={copyReportSummary}>Copy executive summary</button>
+            <button className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={downloadJsonReport}>Download audit JSON</button>
+            <button className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm transition hover:border-teal-600 hover:text-teal-800" onClick={downloadCsvReport}>Download model CSV</button>
           </CardContent>
         </Card>
-          </>
-        )}
       </section>
     </main>
   );

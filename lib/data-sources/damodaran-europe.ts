@@ -219,6 +219,26 @@ const pkdDivisionMap: Record<number, PkdIndustryMapEntry> = {
   99: { industry: "Diversified", confidence: "low", rationale: "PKD 99 extraterritorial organizations have no clear public peer; Diversified is a low-confidence fallback." },
 };
 
+export const activePkd2007Divisions = [
+  1, 2, 3,
+  5, 6, 7, 8, 9,
+  10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33,
+  35, 36, 37, 38, 39,
+  41, 42, 43,
+  45, 46, 47,
+  49, 50, 51, 52, 53,
+  55, 56,
+  58, 59, 60, 61, 62, 63,
+  64, 65, 66,
+  68, 69, 70, 71, 72, 73, 74, 75,
+  77, 78, 79, 80, 81, 82,
+  84, 85, 86, 87, 88,
+  90, 91, 92, 93,
+  94, 95, 96,
+  97, 98,
+  99,
+];
+
 function parsePkd(pkdCode: string) {
   const normalized = pkdCode.trim().toUpperCase();
   const match = normalized.match(/^(\d{2})(?:[.\s-]?(\d{2}))?/);
@@ -360,6 +380,28 @@ export function suggestDamodaranEuropeIndustry(params: { pkdCode?: string; appIn
     matchedPkd: null,
     needsAiReview: true,
     availableIndustryCount: snapshot.industries.length,
+  };
+}
+
+export function getDamodaranEuropePkdCoverage() {
+  const rows = activePkd2007Divisions.map((division) => {
+    const mapping = pkdDivisionMap[division];
+    const industry = findIndustry(mapping?.industry);
+    return {
+      division: division.toString().padStart(2, "0"),
+      damodaranIndustry: industry?.industryName ?? mapping?.industry ?? null,
+      confidence: mapping?.confidence ?? "low",
+      rationale: mapping?.rationale ?? "No mapping configured.",
+      hasMapping: Boolean(mapping),
+      hasDamodaranIndustry: Boolean(industry),
+    };
+  });
+
+  return {
+    activePkdDivisionCount: activePkd2007Divisions.length,
+    mappedDivisionCount: rows.filter((row) => row.hasMapping && row.hasDamodaranIndustry).length,
+    missingDivisions: rows.filter((row) => !row.hasMapping || !row.hasDamodaranIndustry).map((row) => row.division),
+    rows,
   };
 }
 
