@@ -313,6 +313,10 @@ function assignRangeMetric(
   if (mappedKey === "aktywa_obrotowe") year.currentAssets = point;
   if (mappedKey === "kapital_wlasny") year.equity = point;
   if (mappedKey === "zobowiazania_i_rezerwy" || mappedKey === "zobowiazania_i_rezerwy_na_zobowiazania") year.liabilities = point;
+  if (isOneOf(mappedKey, cashAliases)) year.cash = point;
+  if (isOneOf(mappedKey, debtAliases)) year.debt = point;
+  if (isOneOf(mappedKey, leasingAliases)) year.leasing = point;
+  if (isOneOf(mappedKey, otherDebtLikeAliases)) year.otherDebtLikeItems = point;
   if (mappedKey === "wskaznik_zadluzenia") year.debtRatio = point;
   if (mappedKey === "srednioroczny_wzrost_przychodow_3_lata") year.revenueCagr3Y = point;
   if (mappedKey === "zatrudnienie") year.employees = point;
@@ -347,6 +351,55 @@ function dataPoint<T>(value: T, sourceDate: string, fetchedAt: string, confidenc
     isUserOverridden: false,
   };
 }
+
+function isOneOf(normalized: string, aliases: string[]) {
+  return aliases.includes(normalized);
+}
+
+const cashAliases = [
+  "gotowka",
+  "srodki_pieniezne",
+  "srodki_pieniezne_i_inne_aktywa_pieniezne",
+  "srodki_pieniezne_w_kasie_i_na_rachunkach",
+  "aktywa_pieniezne",
+  "inne_srodki_pieniezne",
+  "inwestycje_krotkoterminowe",
+  "krotkoterminowe_aktywa_finansowe",
+];
+
+const debtAliases = [
+  "kredyty_i_pozyczki",
+  "kredyty_pozyczki",
+  "pozyczki_i_kredyty",
+  "dlug_finansowy",
+  "zadluzenie_finansowe",
+  "zobowiazania_finansowe",
+  "zobowiazania_z_tytulu_kredytow_i_pozyczek",
+  "kredyty_i_pozyczki_dlugo_i_krotkoterminowe",
+  "zobowiazania_dlugo_i_krotkoterminowe_z_tytulu_kredytow_i_pozyczek",
+];
+
+const leasingAliases = [
+  "leasing",
+  "zobowiazania_z_tytulu_leasingu",
+  "zobowiazania_leasingowe",
+  "leasing_finansowy",
+  "zobowiazania_z_tytulu_umow_leasingu",
+];
+
+const otherDebtLikeAliases = [
+  "inne_zobowiazania_finansowe",
+  "pozostale_zobowiazania_finansowe",
+  "zobowiazania_wekslowe",
+  "rezerwy_na_zobowiazania",
+  "inne_zobowiazania",
+];
+
+const currentLiabilityAliases = [
+  "zobowiazania_krotkoterminowe",
+  "zobowiazania_biezace",
+  "zobowiazania_krotkoterminowe_i_fundusze_specjalne",
+];
 
 function companyInfo(response: BizRaportCompanyPayload, keys: string[]) {
   const normalizedKeys = keys.map(normalizeBizRaportKey);
@@ -400,18 +453,20 @@ function assignFinancialMetric(year: ImportedFinancialYear, key: string, amount:
     year.debtRatio = point;
   } else if (normalized === "srednioroczny_wzrost_przychodow_3_lata") {
     year.revenueCagr3Y = point;
-  } else if (normalized === "gotowka" || normalized === "srodki_pieniezne" || normalized === "srodki_pieniezne_i_inne_aktywa_pieniezne") {
+  } else if (isOneOf(normalized, cashAliases)) {
     year.cash = point;
   } else if (normalized === "naleznosci" || normalized === "naleznosci_krotkoterminowe") {
     year.receivables = point;
   } else if (normalized === "zapasy") {
     year.inventory = point;
-  } else if (normalized === "zobowiazania_krotkoterminowe" || normalized === "zobowiazania_biezace") {
+  } else if (isOneOf(normalized, currentLiabilityAliases)) {
     year.payables = point;
-  } else if (normalized === "kredyty_i_pozyczki" || normalized === "zadluzenie_finansowe" || normalized === "dlug_finansowy") {
+  } else if (isOneOf(normalized, debtAliases)) {
     year.debt = point;
-  } else if (normalized === "leasing" || normalized === "zobowiazania_z_tytulu_leasingu") {
+  } else if (isOneOf(normalized, leasingAliases)) {
     year.leasing = point;
+  } else if (isOneOf(normalized, otherDebtLikeAliases)) {
+    year.otherDebtLikeItems = point;
   } else if (normalized === "marza_netto") {
     year.netMargin = point;
   } else if (normalized === "marza_operacyjna") {
@@ -466,9 +521,20 @@ function applyFlatRangePayload(
     "wynagrodzenia",
     "amortyzacja",
     "suma_bilansowa",
+    "aktywa_trwale",
+    "aktywa_obrotowe",
     "kapital_wlasny",
     "zobowiazania_i_rezerwy",
     "zobowiazania_i_rezerwy_na_zobowiazania",
+    "srodki_pieniezne_i_inne_aktywa_pieniezne",
+    "inwestycje_krotkoterminowe",
+    "kredyty_i_pozyczki",
+    "dlug_finansowy",
+    "zadluzenie_finansowe",
+    "zobowiazania_z_tytulu_kredytow_i_pozyczek",
+    "zobowiazania_z_tytulu_leasingu",
+    "zobowiazania_leasingowe",
+    "inne_zobowiazania_finansowe",
   ].some((baseKey) => payloadValue(payload, `${baseKey}_od`) !== null || payloadValue(payload, `${baseKey}_do`) !== null);
 
   if (!hasFlatRanges) {
@@ -495,6 +561,15 @@ function applyFlatRangePayload(
   assignRangeMetric(year, payload, "kapital_wlasny", "kapital_wlasny", rangeSourceDate, fetchedAt, notes, "medium");
   assignRangeMetric(year, payload, "zobowiazania_i_rezerwy", "zobowiazania_i_rezerwy", rangeSourceDate, fetchedAt, notes, "low");
   assignRangeMetric(year, payload, "zobowiazania_i_rezerwy_na_zobowiazania", "zobowiazania_i_rezerwy", rangeSourceDate, fetchedAt, notes, "low");
+  assignRangeMetric(year, payload, "srodki_pieniezne_i_inne_aktywa_pieniezne", "srodki_pieniezne_i_inne_aktywa_pieniezne", rangeSourceDate, fetchedAt, notes, "medium");
+  assignRangeMetric(year, payload, "inwestycje_krotkoterminowe", "inwestycje_krotkoterminowe", rangeSourceDate, fetchedAt, notes, "low");
+  assignRangeMetric(year, payload, "kredyty_i_pozyczki", "kredyty_i_pozyczki", rangeSourceDate, fetchedAt, notes, "medium");
+  assignRangeMetric(year, payload, "dlug_finansowy", "dlug_finansowy", rangeSourceDate, fetchedAt, notes, "medium");
+  assignRangeMetric(year, payload, "zadluzenie_finansowe", "zadluzenie_finansowe", rangeSourceDate, fetchedAt, notes, "medium");
+  assignRangeMetric(year, payload, "zobowiazania_z_tytulu_kredytow_i_pozyczek", "zobowiazania_z_tytulu_kredytow_i_pozyczek", rangeSourceDate, fetchedAt, notes, "medium");
+  assignRangeMetric(year, payload, "zobowiazania_z_tytulu_leasingu", "zobowiazania_z_tytulu_leasingu", rangeSourceDate, fetchedAt, notes, "medium");
+  assignRangeMetric(year, payload, "zobowiazania_leasingowe", "zobowiazania_leasingowe", rangeSourceDate, fetchedAt, notes, "medium");
+  assignRangeMetric(year, payload, "inne_zobowiazania_finansowe", "inne_zobowiazania_finansowe", rangeSourceDate, fetchedAt, notes, "low");
   assignRangeMetric(year, payload, "srednioroczny_wzrost_przychodow_3_lata", "srednioroczny_wzrost_przychodow_3_lata", rangeSourceDate, fetchedAt, notes, "medium");
   assignRangeMetric(year, payload, "zatrudnienie", "zatrudnienie", rangeSourceDate, fetchedAt, notes, "medium");
 
@@ -631,6 +706,17 @@ export function mapBizRaportResponseToCompanyFinancialData(response: BizRaportCo
   applyFlatRangePayload(payload, yearsByYear, sourceDate, fetchedAt, notes);
 
   yearsByYear.forEach((year) => deriveEbitda(year, String(year.year), fetchedAt));
+  yearsByYear.forEach((year) => {
+    if (year.liabilities || typeof year.assets?.value !== "number" || typeof year.equity?.value !== "number") {
+      return;
+    }
+    const inferredLiabilities = year.assets.value - year.equity.value;
+    if (!Number.isFinite(inferredLiabilities) || inferredLiabilities < 0) {
+      return;
+    }
+    year.liabilities = dataPoint(inferredLiabilities, String(year.year), fetchedAt, "low");
+    notes.push(`Liabilities for ${year.year}: inferred from assets less equity because a direct BizRaport liabilities field was unavailable.`);
+  });
 
   const years = Array.from(yearsByYear.values()).sort((a, b) => b.year - a.year);
   const hasMappedRevenue = years.some((year) => Boolean(year.revenue));

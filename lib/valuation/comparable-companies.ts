@@ -128,6 +128,7 @@ export function buildBizRaportPeerFilters(input: ValuationInput): BizRaportCatal
     pkdSekcja: section,
     pkdDzial: division,
     pkdPodklasa: subclass,
+    opis: input.profile.industry || input.profile.pkdCode,
     przychodyOd: revenueBand.from,
     przychodyDo: revenueBand.to,
     ebitdaOd: ebitdaBand.from,

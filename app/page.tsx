@@ -287,6 +287,19 @@ function multiple(value: number) {
   return Number.isFinite(value) ? `${value.toFixed(1)}x` : "N/M";
 }
 
+function friendlyBenchmarkAssistantStatus(status: string) {
+  const normalized = status.toLowerCase();
+  if (normalized.includes("quota") || normalized.includes("billing") || normalized.includes("api key") || normalized.includes("openai")) {
+    return "AI review is unavailable. Numeric benchmarks still use Damodaran Europe and BizRaport evidence.";
+  }
+  return status;
+}
+
+function isTechnicalAiWarning(message: string) {
+  const normalized = message.toLowerCase();
+  return normalized.includes("quota") || normalized.includes("billing") || normalized.includes("api key") || normalized.includes("platform.openai.com");
+}
+
 function asNumber(value: string) {
   return Number.isFinite(Number(value)) ? Number(value) : 0;
 }
@@ -984,6 +997,58 @@ function NumberField({ label, value, onChange, percent = false }: { label: strin
   );
 }
 
+function BridgeImportSummary({ input }: { input: ValuationInput }) {
+  const bridgeMetadata = input.importMetadata?.bridge;
+  if (!bridgeMetadata) {
+    return null;
+  }
+
+  const rows = [
+    { label: "Cash", value: input.bridge.cash, source: bridgeMetadata.cash, status: bridgeMetadata.cashUnavailable ? "needs input" : "imported" },
+    { label: "Debt", value: input.bridge.debt, source: bridgeMetadata.debt, status: bridgeMetadata.debtUnavailable ? "needs review" : "imported" },
+    { label: "Leasing", value: input.bridge.leasing, source: bridgeMetadata.leasing, status: bridgeMetadata.leasing ? "imported" : "manual / not found" },
+    {
+      label: bridgeMetadata.liabilitiesUsedAsDebtProxy ? "Liabilities proxy" : "Other debt-like items",
+      value: input.bridge.otherDebtLikeItems,
+      source: bridgeMetadata.otherDebtLikeItems,
+      status: bridgeMetadata.liabilitiesUsedAsDebtProxy ? "proxy" : bridgeMetadata.otherDebtLikeItems ? "imported" : "manual / not found",
+    },
+  ];
+
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-sm font-bold text-amber-950">BizRaport bridge mapping</p>
+          <p className="mt-1 text-xs leading-5 text-amber-900">
+            The bridge is auto-filled only where BizRaport exposes usable balance sheet fields. If financial debt is unavailable, total liabilities may be shown as a conservative proxy and should be reviewed.
+          </p>
+        </div>
+        <Badge className={bridgeMetadata.liabilitiesUsedAsDebtProxy ? "border-amber-300 bg-white text-amber-900" : "border-emerald-200 bg-emerald-50 text-emerald-800"}>
+          {bridgeMetadata.liabilitiesUsedAsDebtProxy ? "proxy used" : "source mapped"}
+        </Badge>
+      </div>
+      <div className="mt-3 grid gap-2 md:grid-cols-4">
+        {rows.map((row) => (
+          <div key={row.label} className="rounded-md border border-amber-100 bg-white p-3">
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-xs font-bold uppercase tracking-[0.1em] text-slate-500">{row.label}</p>
+              <Badge className={row.status === "imported" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : row.status === "proxy" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-slate-200 bg-slate-50 text-slate-700"}>{row.status}</Badge>
+            </div>
+            <p className="mt-2 text-sm font-bold text-slate-950">{money(row.value, input.profile.currency)}</p>
+            <p className="mt-1 text-xs leading-5 text-slate-600">{row.source?.note ?? (row.source ? `Source: ${row.source.sourceDate}` : "No BizRaport field mapped.")}</p>
+          </div>
+        ))}
+      </div>
+      {bridgeMetadata.warnings.length > 0 ? (
+        <ul className="mt-3 space-y-1 text-xs leading-5 text-amber-950">
+          {bridgeMetadata.warnings.slice(0, 3).map((warning) => <li key={warning}>- {warning}</li>)}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 export default function Home() {
   const [workspaceStarted, setWorkspaceStarted] = useState(false);
   const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(1);
@@ -1299,10 +1364,10 @@ export default function Home() {
     return payload;
   }
 
-  async function fetchComparableCompanyPeers() {
+  async function fetchComparableCompanyPeers(valuationInput: ValuationInput = input) {
     setPeerBenchmarkStatus("Fetching BizRaport peer screen for Comparable Companies...");
     try {
-      const filters = buildBizRaportPeerFilters(input);
+      const filters = buildBizRaportPeerFilters(valuationInput);
       const params = new URLSearchParams();
       const setParam = (key: string, value: string | number | boolean | undefined) => {
         if (value === undefined || value === null || value === "") return;
@@ -1312,6 +1377,7 @@ export default function Home() {
       setParam("pkd_sekcja", filters.pkdSekcja);
       setParam("pkd_dzial", filters.pkdDzial);
       setParam("pkd_podklasa", filters.pkdPodklasa);
+      setParam("opis", filters.opis);
       setParam("przychody_od", filters.przychodyOd);
       setParam("przychody_do", filters.przychodyDo);
       setParam("ebitda_od", filters.ebitdaOd);
@@ -1324,7 +1390,7 @@ export default function Home() {
       const benchmark = payload.data as PeerBenchmarkResult;
       setPeerBenchmarks(benchmark);
       setSelectedEngineId("comparableCompanies");
-      setPeerBenchmarkStatus(`Peer screen loaded: ${benchmark.catalogCount} catalog peers, ${benchmark.sampledFinancialCount} sampled financial profiles.`);
+      setPeerBenchmarkStatus(`Peer screen loaded: ${benchmark.catalogCount} catalog peers, ${benchmark.sampledFinancialCount} sampled financial profiles. Filter: ${benchmark.selectedFilterLabel ?? "selected BizRaport filters"}.`);
     } catch (error) {
       setPeerBenchmarks(null);
       setSelectedEngineId("comparableCompanies");
@@ -1349,7 +1415,7 @@ export default function Home() {
       setBenchmarkAssistantStatus(`Benchmark assistant ${statusLabel}: ${payload.suggestedDamodaranIndustry ?? "manual industry review needed"}.`);
     } catch (error) {
       setBenchmarkAssistant(null);
-      setBenchmarkAssistantStatus(error instanceof Error ? error.message : "Benchmark assistant failed.");
+      setBenchmarkAssistantStatus(friendlyBenchmarkAssistantStatus(error instanceof Error ? error.message : "Benchmark assistant failed."));
     }
   }
 
@@ -1723,8 +1789,9 @@ export default function Home() {
     setImportedDataSummary(buildImportedDataSummary(preview.krsProfile, preview.companyData, imported.pkdSuggestion, imported.damodaranSuggestion, Boolean(imported.seed)));
     refreshCoreMarketInputs(imported.input.profile.country, imported.input.profile.industry);
     setWizardImportApplied(true);
-    setCombinedImportStatus("Company data confirmed and applied. Choose a valuation type to continue.");
+    setCombinedImportStatus("Company data confirmed and applied. Comparable Companies peer screen is being refreshed.");
     setWizardStep(2);
+    void fetchComparableCompanyPeers(imported.input);
   }
 
   async function fetchKrsProfile(krsValue = input.profile.registrationNumber || wizardInput.registrationNumber) {
@@ -2218,6 +2285,8 @@ export default function Home() {
   ];
   const marketMultipleIntelligence = assessMarketMultipleIntelligence(input, peerBenchmarks);
   const marketMultipleSource = input.marketMultiples.source;
+  const benchmarkAssistantWarnings = benchmarkAssistant?.sanityWarnings.filter((warning) => !isTechnicalAiWarning(warning.message)) ?? [];
+  const benchmarkAssistantStatusText = benchmarkAssistantStatus ? friendlyBenchmarkAssistantStatus(benchmarkAssistantStatus) : "";
   const activeDamodaranIndustry = damodaranEuropeBenchmark?.damodaranIndustry ?? marketMultipleSource.damodaranIndustry ?? betaSource?.damodaranIndustry ?? "";
   const activeDamodaranConfidence = damodaranEuropeBenchmark?.confidence ?? marketMultipleSource.confidence ?? betaSource?.confidence ?? "low";
   const dataReadinessItems: DataReadinessItem[] = [
@@ -2866,6 +2935,7 @@ export default function Home() {
               <NumberField label="Other debt-like items" value={input.bridge.otherDebtLikeItems} onChange={(v) => update(["bridge", "otherDebtLikeItems"], v)} />
               <NumberField label="Transaction costs" value={input.bridge.transactionCosts} onChange={(v) => update(["bridge", "transactionCosts"], v)} />
               <NumberField label="Non-operating assets" value={input.bridge.nonOperatingAssets} onChange={(v) => update(["bridge", "nonOperatingAssets"], v)} />
+              <BridgeImportSummary input={input} />
               <div className="rounded-xl bg-slate-50 p-4 text-sm">Formula: EV + cash + non-operating assets - debt - leasing - other debt-like items - transaction costs = <strong>{money(model.bridge.equityValue, input.profile.currency)}</strong></div>
             </CardContent>
           </Card>
@@ -3053,88 +3123,97 @@ export default function Home() {
               <NumberField label="DCF blend weighting" value={input.marketMultiples.dcfWeight} percent onChange={(value) => update(["marketMultiples", "dcfWeight"], value)} />
             </div>
 
-            <div className="rounded-lg border border-teal-200 bg-teal-50 p-4">
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="rounded-lg border border-slate-200 bg-white p-4">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div>
-                  <p className="text-sm font-bold text-teal-950">Benchmark Assistant</p>
-                  <p className="mt-1 max-w-3xl text-sm leading-6 text-teal-900">AI coordinates Damodaran, BizRaport and GPW/NewConnect peer selection. It writes rationale and checks; numeric valuation evidence must still come from source-traced data.</p>
-                  {benchmarkAssistantStatus ? <p className="mt-2 text-xs font-semibold text-teal-800">{benchmarkAssistantStatus}</p> : null}
+                  <p className="text-sm font-bold text-slate-950">Sector benchmark used in model</p>
+                  <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">Damodaran Europe supplies the market multiples. AI is not used as a numeric source.</p>
                 </div>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <button className="rounded-md bg-teal-700 px-4 py-2 text-sm font-bold text-white transition hover:bg-teal-800" onClick={runBenchmarkAssistant}>Run benchmark assistant</button>
-                  <button className="rounded-md border border-teal-300 bg-white px-4 py-2 text-sm font-bold text-teal-900 transition hover:bg-teal-100" onClick={useBenchmarkAssistantAsSource}>Attach rationale</button>
-                  <button className="rounded-md border border-teal-300 bg-white px-4 py-2 text-sm font-bold text-teal-900 transition hover:bg-teal-100" onClick={reviewSuggestedPublicComps}>Review public comps</button>
+                <Badge className={marketMultipleSource.approvalStatus === "approved" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"}>{marketMultipleSource.approvalStatus}</Badge>
+              </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-md bg-slate-50 p-3">
+                    <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Industry</p>
+                    <p className="mt-1 text-sm font-bold text-slate-950">{marketMultipleSource.damodaranIndustry ?? damodaranEuropeBenchmark?.damodaranIndustry ?? input.profile.industry}</p>
+                  </div>
+                  <div className="rounded-md bg-slate-50 p-3">
+                    <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">EV / EBITDA</p>
+                    <p className="mt-1 text-sm font-bold text-slate-950">{multiple(input.marketMultiples.evEbitdaMultiple)}</p>
+                  </div>
+                  <div className="rounded-md bg-slate-50 p-3">
+                    <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">EV / Revenue</p>
+                    <p className="mt-1 text-sm font-bold text-slate-950">{multiple(input.marketMultiples.evRevenueMultiple)}</p>
+                  </div>
                 </div>
+                <p className="mt-3 text-xs leading-5 text-slate-500">Source: {marketMultipleSource.label || "Damodaran Europe benchmark"}{marketMultipleSource.sourceDate ? `, ${marketMultipleSource.sourceDate}` : ""}. Manual edits move the source back to draft until approved.</p>
+
               </div>
 
+              <div className="rounded-lg border border-slate-200 bg-white p-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <p className="text-sm font-bold text-slate-950">Private peer screen</p>
+                    <p className="mt-1 text-sm leading-6 text-slate-600">BizRaport validates peer count, scale and margin context. It is a sanity check, not a direct trading multiple source.</p>
+                  </div>
+                  <Badge className={peerBenchmarks && peerBenchmarks.catalogCount > 0 ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"}>{peerBenchmarks && peerBenchmarks.catalogCount > 0 ? "loaded" : "pending"}</Badge>
+                </div>
+                {peerBenchmarks ? (
+                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-md bg-slate-50 p-3">
+                      <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Catalog peers</p>
+                      <p className="mt-1 text-sm font-bold text-slate-950">{peerBenchmarks.catalogCount}</p>
+                    </div>
+                    <div className="rounded-md bg-slate-50 p-3">
+                      <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Sampled profiles</p>
+                      <p className="mt-1 text-sm font-bold text-slate-950">{peerBenchmarks.sampledFinancialCount}</p>
+                    </div>
+                    <div className="rounded-md bg-slate-50 p-3">
+                      <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Filter</p>
+                      <p className="mt-1 text-sm font-bold text-slate-950">{peerBenchmarks.selectedFilterLabel ?? "selected filters"}</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-950">{peerBenchmarkStatus || "Peer screen has not been refreshed yet."}</div>
+                )}
+                <button className="mt-4 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-900 transition hover:bg-slate-50" onClick={() => fetchComparableCompanyPeers()}>Refresh BizRaport peer screen</button>
+              </div>
+            </div>
+
+            <details className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <summary className="cursor-pointer text-sm font-bold text-slate-950">Optional AI review</summary>
+              <div className="mt-3 grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+                <div>
+                  <p className="text-sm leading-6 text-slate-600">AI can explain the industry match and draft a review note. It does not create EV/EBITDA, EV/Revenue, WACC or company financials.</p>
+                  {benchmarkAssistantStatusText ? <p className="mt-2 text-xs font-semibold text-slate-600">{benchmarkAssistantStatusText}</p> : null}
+                </div>
+                <button className="rounded-md bg-slate-950 px-4 py-2 text-sm font-bold text-white transition hover:bg-teal-800" onClick={runBenchmarkAssistant}>Run AI review</button>
+              </div>
               {benchmarkAssistant ? (
-                <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(300px,0.8fr)]">
-                  <div className="rounded-md border border-teal-100 bg-white p-4">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">Suggested benchmark</p>
-                        <p className="mt-1 text-base font-bold text-slate-950">{benchmarkAssistant.suggestedDamodaranIndustry ?? "Manual industry review needed"}</p>
-                      </div>
-                      <Badge className={benchmarkAssistant.damodaranConfidence === "high" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : benchmarkAssistant.damodaranConfidence === "medium" ? "border-blue-200 bg-blue-50 text-blue-800" : "border-amber-200 bg-amber-50 text-amber-800"}>{benchmarkAssistant.damodaranConfidence}</Badge>
+                <div className="mt-4 rounded-md border border-slate-200 bg-white p-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">AI industry view</p>
+                      <p className="mt-1 text-base font-bold text-slate-950">{benchmarkAssistant.suggestedDamodaranIndustry ?? "Manual industry review needed"}</p>
                     </div>
-                    <p className="mt-3 text-sm leading-6 text-slate-600">{benchmarkAssistant.industryRationale}</p>
-                    <p className="mt-3 text-sm leading-6 text-slate-700">{benchmarkAssistant.benchmarkRationale}</p>
-                    <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                      {benchmarkAssistant.nextActions.slice(0, 4).map((action) => (
-                        <div key={action} className="rounded-md border border-slate-100 bg-slate-50 p-3 text-xs leading-5 text-slate-700">{action}</div>
-                      ))}
-                    </div>
+                    <Badge className={benchmarkAssistant.damodaranConfidence === "high" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : benchmarkAssistant.damodaranConfidence === "medium" ? "border-blue-200 bg-blue-50 text-blue-800" : "border-amber-200 bg-amber-50 text-amber-800"}>{benchmarkAssistant.damodaranConfidence}</Badge>
                   </div>
-
-                  <div className="rounded-md border border-teal-100 bg-white p-4">
-                    <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">BizRaport query</p>
-                    <p className="mt-2 text-sm leading-6 text-slate-600">{benchmarkAssistant.bizRaportRationale}</p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {Object.entries(benchmarkAssistant.bizRaportFilters).slice(0, 8).map(([key, value]) => (
-                        <span key={key} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700">{key}: {String(value)}</span>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="rounded-md border border-teal-100 bg-white p-4 xl:col-span-2">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                      <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">GPW / NewConnect watchlist</p>
-                      <Badge className="border-amber-200 bg-amber-50 text-amber-800">numbers pending source data</Badge>
-                    </div>
-                    <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                      {benchmarkAssistant.suggestedPublicComps.map((company) => (
-                        <div key={`${company.market}-${company.ticker}`} className="rounded-md border border-slate-100 bg-slate-50 p-3">
-                          <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <p className="text-sm font-bold text-slate-950">{company.ticker} · {company.companyName}</p>
-                              <p className="mt-1 text-xs font-semibold text-slate-500">{company.market}</p>
-                            </div>
-                            <Badge className="border-slate-200 bg-white text-slate-700">{company.inclusionStatus}</Badge>
-                          </div>
-                          <p className="mt-2 text-xs leading-5 text-slate-600">{company.rationale}</p>
+                  <p className="mt-3 text-sm leading-6 text-slate-600">{benchmarkAssistant.industryRationale}</p>
+                  {benchmarkAssistantWarnings.length > 0 ? (
+                    <div className="mt-3 grid gap-2 md:grid-cols-2">
+                      {benchmarkAssistantWarnings.map((warning) => (
+                        <div key={`${warning.area}-${warning.message}`} className="rounded-md border border-amber-100 bg-amber-50 p-3 text-xs leading-5 text-amber-950">
+                          <p className="font-bold">{warning.message}</p>
+                          <p className="mt-1">{warning.suggestedAction}</p>
                         </div>
                       ))}
-                    </div>
-                  </div>
-
-                  {benchmarkAssistant.sanityWarnings.length > 0 ? (
-                    <div className="rounded-md border border-amber-200 bg-amber-50 p-4 xl:col-span-2">
-                      <p className="text-xs font-bold uppercase tracking-[0.12em] text-amber-800">Sanity checks</p>
-                      <div className="mt-3 grid gap-2 md:grid-cols-2">
-                        {benchmarkAssistant.sanityWarnings.map((warning) => (
-                          <div key={`${warning.area}-${warning.message}`} className="rounded-md border border-amber-100 bg-white p-3 text-xs leading-5 text-amber-950">
-                            <p className="font-bold">{warning.message}</p>
-                            <p className="mt-1">{warning.suggestedAction}</p>
-                          </div>
-                        ))}
-                      </div>
                     </div>
                   ) : null}
                 </div>
               ) : null}
-            </div>
+            </details>
 
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(280px,0.9fr)]">
+            <div className="grid gap-4">
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
@@ -3184,18 +3263,6 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className="rounded-lg border border-teal-200 bg-teal-50 p-4">
-                <p className="text-sm font-bold text-teal-950">How to use AI here</p>
-                <p className="mt-2 text-sm leading-6 text-teal-900">{marketMultipleIntelligence.aiAnalystRole}</p>
-                <div className="mt-4 space-y-2">
-                  {marketMultipleIntelligence.suggestedNextActions.map((action) => (
-                    <div key={action} className="flex gap-2 rounded-md border border-teal-100 bg-white/70 p-3 text-xs leading-5 text-slate-700">
-                      <CheckCircle2 size={15} className="mt-0.5 shrink-0 text-teal-700" />
-                      <span>{action}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
             </div>
 
             <div className="grid gap-5 lg:grid-cols-3">

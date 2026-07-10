@@ -459,6 +459,116 @@ export function buildPdfReportHtml(report: ValuationReport): string {
 </html>`;
 }
 
+function scalePdfValue(value: number, min: number, max: number, width: number) {
+  if (!Number.isFinite(value) || !Number.isFinite(min) || !Number.isFinite(max) || max <= min) {
+    return width / 2;
+  }
+  return Math.max(0, Math.min(width, ((value - min) / (max - min)) * width));
+}
+
+function buildPdfRangeSvg(conclusion: ValuationConclusion, currency: string) {
+  const width = 720;
+  const height = 96;
+  const low = conclusion.bearAdjustedEquityValue;
+  const base = conclusion.baseAdjustedEquityValue;
+  const high = conclusion.bullAdjustedEquityValue;
+  const min = Math.min(low, base, high);
+  const max = Math.max(low, base, high);
+  const start = scalePdfValue(low, min, max, width - 80) + 40;
+  const end = scalePdfValue(high, min, max, width - 80) + 40;
+  const marker = scalePdfValue(base, min, max, width - 80) + 40;
+
+  return `
+    <svg class="range-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Valuation range">
+      <defs>
+        <linearGradient id="rangeGradient" x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0%" stop-color="#14b8a6" />
+          <stop offset="55%" stop-color="#2dd4bf" />
+          <stop offset="100%" stop-color="#0f766e" />
+        </linearGradient>
+      </defs>
+      <line x1="40" y1="44" x2="${width - 40}" y2="44" stroke="#dbe5ee" stroke-width="14" stroke-linecap="round" />
+      <line x1="${start.toFixed(1)}" y1="44" x2="${end.toFixed(1)}" y2="44" stroke="url(#rangeGradient)" stroke-width="14" stroke-linecap="round" />
+      <circle cx="${marker.toFixed(1)}" cy="44" r="13" fill="#0f172a" stroke="#ffffff" stroke-width="4" />
+      <text x="40" y="80" fill="#53657d" font-size="13" font-weight="700">${escapeHtml(safeMoney(low, currency))}</text>
+      <text x="${width - 40}" y="80" fill="#53657d" font-size="13" font-weight="700" text-anchor="end">${escapeHtml(safeMoney(high, currency))}</text>
+      <text x="${marker.toFixed(1)}" y="18" fill="#0f172a" font-size="13" font-weight="800" text-anchor="middle">${escapeHtml(safeMoney(base, currency))}</text>
+    </svg>
+  `;
+}
+
+function buildPdfFootballField(items: ValuationFootballFieldItem[], currency: string) {
+  const values = items.flatMap((item) => [item.low, item.midpoint, item.high]).filter(Number.isFinite);
+  const min = values.length ? Math.min(...values) : 0;
+  const max = values.length ? Math.max(...values) : 1;
+  const width = 720;
+  const rowHeight = 44;
+  const height = 34 + items.length * rowHeight;
+  const plotWidth = 430;
+  const plotX = 250;
+  const colors = ["#0f766e", "#2563eb", "#7c3aed"];
+
+  const rows = items.map((item, index) => {
+    const y = 30 + index * rowHeight;
+    const x1 = scalePdfValue(item.low, min, max, plotWidth) + plotX;
+    const x2 = scalePdfValue(item.high, min, max, plotWidth) + plotX;
+    const mid = scalePdfValue(item.midpoint, min, max, plotWidth) + plotX;
+    const color = colors[index % colors.length];
+
+    return `
+      <text x="18" y="${y + 5}" fill="#0f172a" font-size="13" font-weight="800">${escapeHtml(item.method)}</text>
+      <text x="18" y="${y + 23}" fill="#64748b" font-size="11">${escapeHtml(safeMoney(item.midpoint, currency))}</text>
+      <line x1="${plotX}" y1="${y}" x2="${plotX + plotWidth}" y2="${y}" stroke="#e6edf5" stroke-width="10" stroke-linecap="round" />
+      <line x1="${x1.toFixed(1)}" y1="${y}" x2="${x2.toFixed(1)}" y2="${y}" stroke="${color}" stroke-width="10" stroke-linecap="round" />
+      <circle cx="${mid.toFixed(1)}" cy="${y}" r="7" fill="#ffffff" stroke="${color}" stroke-width="4" />
+    `;
+  }).join("");
+
+  return `
+    <svg class="football-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Valuation football field">
+      <text x="${plotX}" y="15" fill="#64748b" font-size="10" font-weight="800" letter-spacing="1.5">LOW</text>
+      <text x="${plotX + plotWidth / 2}" y="15" fill="#64748b" font-size="10" font-weight="800" text-anchor="middle" letter-spacing="1.5">MIDPOINT</text>
+      <text x="${plotX + plotWidth}" y="15" fill="#64748b" font-size="10" font-weight="800" text-anchor="end" letter-spacing="1.5">HIGH</text>
+      ${rows}
+    </svg>
+  `;
+}
+
+function buildPdfScenarioChart(scenarios: ScenarioAnalysisResult[], currency: string) {
+  const values = scenarios.map((scenario) => scenario.adjustedEquityValue).filter(Number.isFinite);
+  const min = values.length ? Math.min(...values, 0) : 0;
+  const max = values.length ? Math.max(...values, 1) : 1;
+  const width = 720;
+  const height = 178;
+  const plotX = 52;
+  const plotY = 18;
+  const plotWidth = 610;
+  const plotHeight = 104;
+  const barWidth = Math.min(120, plotWidth / Math.max(1, scenarios.length) - 18);
+  const zeroY = plotY + plotHeight - scalePdfValue(0, min, max, plotHeight);
+
+  const bars = scenarios.map((scenario, index) => {
+    const x = plotX + index * (plotWidth / Math.max(1, scenarios.length)) + 18;
+    const y = plotY + plotHeight - scalePdfValue(Math.max(scenario.adjustedEquityValue, 0), min, max, plotHeight);
+    const h = Math.max(4, Math.abs(scalePdfValue(scenario.adjustedEquityValue, min, max, plotHeight) - scalePdfValue(0, min, max, plotHeight)));
+    const color = scenario.name === "Base" ? "#0f766e" : scenario.name === "Bull" ? "#2563eb" : "#f59e0b";
+
+    return `
+      <rect x="${x.toFixed(1)}" y="${Math.min(y, zeroY).toFixed(1)}" width="${barWidth.toFixed(1)}" height="${h.toFixed(1)}" rx="8" fill="${color}" opacity="0.92" />
+      <text x="${(x + barWidth / 2).toFixed(1)}" y="${plotY + plotHeight + 23}" fill="#0f172a" font-size="12" font-weight="800" text-anchor="middle">${escapeHtml(scenario.name)}</text>
+      <text x="${(x + barWidth / 2).toFixed(1)}" y="${plotY + plotHeight + 41}" fill="#64748b" font-size="10" text-anchor="middle">${escapeHtml(safeMoney(scenario.adjustedEquityValue, currency))}</text>
+    `;
+  }).join("");
+
+  return `
+    <svg class="scenario-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Scenario valuation chart">
+      <line x1="${plotX}" y1="${zeroY.toFixed(1)}" x2="${plotX + plotWidth}" y2="${zeroY.toFixed(1)}" stroke="#dbe5ee" stroke-width="2" />
+      <line x1="${plotX}" y1="${plotY}" x2="${plotX}" y2="${plotY + plotHeight}" stroke="#dbe5ee" stroke-width="2" />
+      ${bars}
+    </svg>
+  `;
+}
+
 export function buildExecutiveSummaryPdfHtml(report: ValuationReport): string {
   const currency = report.companyProfile.currency || "PLN";
   const companyName = report.companyProfile.companyName || "Company valuation";
@@ -468,6 +578,11 @@ export function buildExecutiveSummaryPdfHtml(report: ValuationReport): string {
   const generatedDate = new Date(report.generatedAt).toLocaleString("en-US");
   const warnings = conclusion.keyWarnings.length > 0 ? conclusion.keyWarnings : ["No critical diagnostics are currently active."];
   const source = report.inputAssumptions.marketMultiples.source;
+  const latestHistorical = report.inputAssumptions.historicals[report.inputAssumptions.historicals.length - 1];
+  const rangeSvg = buildPdfRangeSvg(conclusion, currency);
+  const footballSvg = buildPdfFootballField(report.bankerGradeOutput.footballField, currency);
+  const scenarioSvg = buildPdfScenarioChart(report.scenarioAnalysis, currency);
+  const reviewTone = readiness.posture === "review-ready" ? "Ready for review" : readiness.posture === "screen-grade" ? "Screen-grade" : "Draft / review";
   const footballRows = report.bankerGradeOutput.footballField.map((item) => `
     <tr>
       <td>${escapeHtml(item.method)}</td>
@@ -487,11 +602,13 @@ export function buildExecutiveSummaryPdfHtml(report: ValuationReport): string {
   const assumptionRows = [
     ["WACC", safePercent(report.waccSummary.wacc)],
     ["Cost of equity", safePercent(report.waccSummary.costOfEquity)],
+    ["Latest revenue", safeMoney(latestHistorical?.revenue ?? Number.NaN, currency)],
+    ["Normalized EBITDA", safeMoney(report.normalizedEbitdaBridge.normalizedEbitda, currency)],
     ["Terminal method", report.terminalValueBreakdown.method],
     ["Terminal growth", safePercent(report.executiveSummary.terminalGrowth)],
     ["EV / EBITDA", safeMultiple(report.inputAssumptions.marketMultiples.evEbitdaMultiple)],
     ["DLOM", safePercent(report.inputAssumptions.discounts.lackOfMarketability)],
-    ["Market benchmark status", source.approvalStatus],
+    ["Benchmark status", source.approvalStatus],
   ].map(([label, value]) => `
     <tr>
       <td>${escapeHtml(label)}</td>
@@ -505,89 +622,171 @@ export function buildExecutiveSummaryPdfHtml(report: ValuationReport): string {
   <meta charset="utf-8" />
   <title>${escapeHtml(companyName)} - Executive Valuation Summary</title>
   <style>
-    @page { size: A4; margin: 16mm; }
+    @page { size: A4; margin: 10mm; }
     * { box-sizing: border-box; }
-    body { margin: 0; color: #0f172a; font-family: Arial, Helvetica, sans-serif; background: #fff; }
-    .page { max-width: 980px; margin: 0 auto; }
-    .cover { border-bottom: 2px solid #0f766e; padding-bottom: 18px; margin-bottom: 20px; }
-    .eyebrow { color: #0f766e; font-size: 10px; font-weight: 800; letter-spacing: 0.18em; text-transform: uppercase; }
-    h1 { margin: 8px 0 8px; font-size: 28px; line-height: 1.08; }
-    h2 { margin: 24px 0 8px; font-size: 16px; }
+    body { margin: 0; color: #0f172a; font-family: Arial, Helvetica, sans-serif; background: #e8eef5; }
+    .page { max-width: 980px; margin: 0 auto; background: #ffffff; box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18); }
+    .hero { position: relative; overflow: hidden; color: #ffffff; padding: 28px 32px 26px; background: linear-gradient(135deg, #071525 0%, #0f766e 58%, #22c55e 122%); }
+    .hero:after { content: ""; position: absolute; right: -120px; top: -140px; width: 360px; height: 360px; border-radius: 999px; border: 56px solid rgba(255,255,255,0.10); }
+    .topline { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; position: relative; z-index: 1; }
+    .eyebrow { color: #99f6e4; font-size: 10px; font-weight: 900; letter-spacing: 0.22em; text-transform: uppercase; }
+    .status-pill { border: 1px solid rgba(255,255,255,0.35); border-radius: 999px; padding: 7px 11px; color: #ecfeff; font-size: 11px; font-weight: 800; background: rgba(15,23,42,0.18); }
+    h1 { position: relative; z-index: 1; margin: 10px 0 8px; max-width: 760px; font-size: 31px; line-height: 1.05; letter-spacing: -0.02em; }
+    .hero-meta { position: relative; z-index: 1; color: #ccfbf1; font-size: 11px; line-height: 1.6; }
+    .hero-grid { position: relative; z-index: 1; display: grid; grid-template-columns: 1.35fr 0.65fr; gap: 16px; margin-top: 22px; }
+    .headline-card { border: 1px solid rgba(255,255,255,0.26); border-radius: 16px; padding: 18px; background: rgba(255,255,255,0.12); backdrop-filter: blur(10px); }
+    .headline-label { color: #a7f3d0; font-size: 10px; font-weight: 900; letter-spacing: 0.18em; text-transform: uppercase; }
+    .headline-value { margin-top: 8px; font-size: 31px; font-weight: 900; letter-spacing: -0.02em; }
+    .headline-copy { margin-top: 8px; color: #e0f2fe; font-size: 12px; line-height: 1.5; }
+    .side-kpis { display: grid; gap: 9px; }
+    .side-kpi { border: 1px solid rgba(255,255,255,0.22); border-radius: 12px; padding: 11px; background: rgba(15,23,42,0.18); }
+    .side-kpi span { display: block; color: #bae6fd; font-size: 9px; font-weight: 900; letter-spacing: 0.15em; text-transform: uppercase; }
+    .side-kpi strong { display: block; margin-top: 5px; font-size: 15px; color: #ffffff; }
+    .content { padding: 24px 30px 30px; }
+    .section { margin-top: 18px; }
+    .section-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+    h2 { margin: 0; font-size: 16px; letter-spacing: -0.01em; }
+    .section-note { color: #64748b; font-size: 11px; }
     p { margin: 0; line-height: 1.5; }
     .muted { color: #52627a; font-size: 12px; }
-    .callout { border: 1px solid #c9e7df; border-left: 5px solid #0f766e; border-radius: 10px; padding: 14px; background: #f3fbf8; margin: 14px 0; }
-    .risk { border-color: #f1d6a8; border-left-color: #d97706; background: #fffaf0; }
-    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 16px 0; }
-    .metric { border: 1px solid #d8e0ea; border-radius: 10px; padding: 13px; background: #f8fafc; min-height: 90px; }
-    .metric-label { color: #52627a; font-size: 10px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; }
-    .metric-value { margin-top: 8px; font-size: 19px; font-weight: 800; line-height: 1.2; }
-    ul { margin: 8px 0 0 18px; padding: 0; }
-    li { margin: 5px 0; line-height: 1.4; }
-    table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
-    th { color: #52627a; text-align: left; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; border-bottom: 1px solid #d8e0ea; padding: 8px 6px; }
-    td { border-bottom: 1px solid #edf2f7; padding: 9px 6px; vertical-align: top; }
-    .two-col { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 14px; }
+    .metric-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 14px 0; }
+    .metric { border: 1px solid #d8e0ea; border-radius: 14px; padding: 14px; background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%); min-height: 98px; }
+    .metric.primary { border-color: #99f6e4; background: #ecfdf5; }
+    .metric-label { color: #52627a; font-size: 9px; font-weight: 900; letter-spacing: 0.15em; text-transform: uppercase; }
+    .metric-value { margin-top: 8px; font-size: 20px; font-weight: 900; line-height: 1.18; }
+    .metric.primary .metric-value { color: #0f766e; }
+    .card { border: 1px solid #d8e0ea; border-radius: 16px; padding: 15px; background: #ffffff; }
+    .card.soft { background: #f8fafc; }
+    .chart-card { border: 1px solid #cbd5e1; border-radius: 16px; padding: 16px; background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%); }
+    .range-svg, .football-svg, .scenario-svg { display: block; width: 100%; height: auto; }
+    .two-col { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 14px; align-items: start; }
+    .three-col { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .driver-list { margin: 8px 0 0; padding: 0; list-style: none; }
+    .driver-list li { margin: 7px 0; padding-left: 15px; position: relative; color: #334155; font-size: 12px; line-height: 1.45; }
+    .driver-list li:before { content: ""; position: absolute; left: 0; top: 7px; width: 6px; height: 6px; border-radius: 999px; background: #14b8a6; }
+    .risk { border-color: #fde68a; background: #fffbeb; }
+    .risk .driver-list li:before { background: #f59e0b; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 11px; }
+    th { color: #64748b; text-align: left; font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; border-bottom: 1px solid #d8e0ea; padding: 8px 6px; }
+    td { border-bottom: 1px solid #edf2f7; padding: 8px 6px; vertical-align: top; }
     .small { font-size: 11px; color: #52627a; }
-    .footer { margin-top: 22px; padding-top: 10px; border-top: 1px solid #d8e0ea; color: #52627a; font-size: 11px; }
+    .source-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 10px; }
+    .source-item { border-radius: 12px; background: #f1f5f9; padding: 10px; }
+    .source-item span { display: block; color: #64748b; font-size: 9px; font-weight: 900; letter-spacing: 0.12em; text-transform: uppercase; }
+    .source-item strong { display: block; margin-top: 4px; font-size: 11px; color: #0f172a; }
+    .footer { margin-top: 18px; padding-top: 12px; border-top: 1px solid #d8e0ea; color: #52627a; font-size: 10px; display: flex; justify-content: space-between; gap: 12px; }
+    .page-break { break-before: page; page-break-before: always; }
     @media print { body { print-color-adjust: exact; -webkit-print-color-adjust: exact; } }
   </style>
 </head>
 <body>
   <div class="page">
-    <section class="cover">
-      <div class="eyebrow">Executive valuation summary</div>
+    <section class="hero">
+      <div class="topline">
+        <div class="eyebrow">Executive valuation summary</div>
+        <div class="status-pill">${escapeHtml(reviewTone)}</div>
+      </div>
       <h1>${escapeHtml(companyName)}</h1>
-      <p class="muted">Generated ${escapeHtml(generatedDate)} | Currency: ${escapeHtml(currency)} | Country: ${escapeHtml(report.companyProfile.country || "n/a")} | KRS: ${escapeHtml(report.companyProfile.registrationNumber || "n/a")}</p>
+      <p class="hero-meta">Generated ${escapeHtml(generatedDate)} | Currency: ${escapeHtml(currency)} | Country: ${escapeHtml(report.companyProfile.country || "n/a")} | KRS: ${escapeHtml(report.companyProfile.registrationNumber || "n/a")}</p>
+      <div class="hero-grid">
+        <div class="headline-card">
+          <div class="headline-label">Headline owner-facing equity value</div>
+          <div class="headline-value">${escapeHtml(safeMoney(conclusion.baseAdjustedEquityValue, currency))}</div>
+          <p class="headline-copy">Supported range: ${escapeHtml(safeMoney(conclusion.bearAdjustedEquityValue, currency))} to ${escapeHtml(safeMoney(conclusion.bullAdjustedEquityValue, currency))}. ${escapeHtml(readiness.headline)}</p>
+        </div>
+        <div class="side-kpis">
+          <div class="side-kpi"><span>Core multiple</span><strong>${escapeHtml(safeMultiple(executive.evToNormalizedEbitda))} EV / EBITDA</strong></div>
+          <div class="side-kpi"><span>WACC</span><strong>${escapeHtml(safePercent(report.waccSummary.wacc))}</strong></div>
+          <div class="side-kpi"><span>Benchmark</span><strong>${escapeHtml(source.approvalStatus)}</strong></div>
+        </div>
+      </div>
     </section>
 
-    <section class="callout">
-      <div class="eyebrow">Headline conclusion</div>
-      <p><strong>Indicated owner-facing equity value is ${escapeHtml(safeMoney(conclusion.baseAdjustedEquityValue, currency))}</strong>. The current supported range is ${escapeHtml(safeMoney(conclusion.bearAdjustedEquityValue, currency))} to ${escapeHtml(safeMoney(conclusion.bullAdjustedEquityValue, currency))}. Readiness is ${escapeHtml(readiness.posture)}: ${escapeHtml(readiness.headline)}</p>
-    </section>
-
-    <div class="grid">
-      <div class="metric"><div class="metric-label">Base equity value</div><div class="metric-value">${escapeHtml(safeMoney(conclusion.baseAdjustedEquityValue, currency))}</div></div>
-      <div class="metric"><div class="metric-label">Valuation range</div><div class="metric-value">${escapeHtml(safeMoney(conclusion.bearAdjustedEquityValue, currency))}<br/>${escapeHtml(safeMoney(conclusion.bullAdjustedEquityValue, currency))}</div></div>
-      <div class="metric"><div class="metric-label">Core multiple</div><div class="metric-value">${escapeHtml(safeMultiple(executive.evToNormalizedEbitda))} EV / EBITDA</div></div>
-    </div>
-
-    <div class="two-col">
-      <section>
-        <h2>Key Valuation Drivers</h2>
-        <ul>${conclusion.keyValuationDrivers.slice(0, 4).map((driver) => `<li>${escapeHtml(driver)}</li>`).join("")}</ul>
+    <main class="content">
+      <section class="section">
+        <div class="section-title">
+          <h2>Valuation Range</h2>
+          <span class="section-note">Low / headline / high indication</span>
+        </div>
+        <div class="chart-card">${rangeSvg}</div>
       </section>
-      <section>
-        <h2>Core Assumptions</h2>
+
+      <section class="section metric-grid">
+        <div class="metric primary"><div class="metric-label">Base equity value</div><div class="metric-value">${escapeHtml(safeMoney(conclusion.baseAdjustedEquityValue, currency))}</div><p class="small">Headline indication</p></div>
+        <div class="metric"><div class="metric-label">Low indication</div><div class="metric-value">${escapeHtml(safeMoney(conclusion.bearAdjustedEquityValue, currency))}</div><p class="small">Downside case</p></div>
+        <div class="metric"><div class="metric-label">High indication</div><div class="metric-value">${escapeHtml(safeMoney(conclusion.bullAdjustedEquityValue, currency))}</div><p class="small">Upside case</p></div>
+      </section>
+
+      <section class="section two-col">
+        <div class="card">
+          <div class="section-title"><h2>Key Valuation Drivers</h2></div>
+          <ul class="driver-list">${conclusion.keyValuationDrivers.slice(0, 4).map((driver) => `<li>${escapeHtml(driver)}</li>`).join("")}</ul>
+        </div>
+        <div class="card soft">
+          <div class="section-title"><h2>Core Assumptions</h2></div>
+          <table><tbody>${assumptionRows}</tbody></table>
+        </div>
+      </section>
+
+      <section class="section chart-card">
+        <div class="section-title">
+          <h2>Valuation Football Field</h2>
+          <span class="section-note">Method-level support, not separate conclusions</span>
+        </div>
+        ${footballSvg}
+      </section>
+
+      <section class="section two-col">
+        <div class="card">
+          <div class="section-title"><h2>Scenario Support</h2></div>
+          ${scenarioSvg}
+        </div>
+        <div class="card risk">
+          <div class="section-title"><h2>Review Items</h2></div>
+          <ul class="driver-list">${warnings.slice(0, 5).map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}</ul>
+        </div>
+      </section>
+
+      <section class="section page-break">
+        <div class="section-title">
+          <h2>Detailed Method Table</h2>
+          <span class="section-note">Audit support</span>
+        </div>
         <table>
-          <tbody>${assumptionRows}</tbody>
+          <thead><tr><th>Method</th><th>Low</th><th>Midpoint</th><th>High</th></tr></thead>
+          <tbody>${footballRows}</tbody>
         </table>
       </section>
-    </div>
 
-    <section class="callout risk">
-      <div class="eyebrow">Review items</div>
-      <ul>${warnings.slice(0, 5).map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}</ul>
-    </section>
+      <section class="section two-col">
+        <div class="card">
+          <div class="section-title"><h2>Scenario Table</h2></div>
+          <table>
+            <thead><tr><th>Scenario</th><th>Adjusted equity value</th><th>EV / EBITDA</th><th>TV / EV</th></tr></thead>
+            <tbody>${scenarioRows}</tbody>
+          </table>
+        </div>
+        <div class="card soft">
+          <div class="section-title"><h2>Methodology</h2></div>
+          <p class="small">${escapeHtml(conclusion.methodologyNote)} This PDF is intentionally limited to decision-grade outputs; Excel and JSON/CSV retain detailed audit support.</p>
+        </div>
+      </section>
 
-    <h2>Valuation Range By Method</h2>
-    <table>
-      <thead><tr><th>Method</th><th>Low</th><th>Midpoint</th><th>High</th></tr></thead>
-      <tbody>${footballRows}</tbody>
-    </table>
+      <section class="section">
+        <div class="section-title"><h2>Benchmark Source Posture</h2></div>
+        <div class="source-strip">
+          <div class="source-item"><span>Source</span><strong>${escapeHtml(source.label)}</strong></div>
+          <div class="source-item"><span>Status</span><strong>${escapeHtml(source.approvalStatus)}</strong></div>
+          <div class="source-item"><span>Confidence</span><strong>${escapeHtml(source.confidence)}</strong></div>
+          <div class="source-item"><span>Industry</span><strong>${escapeHtml(source.damodaranIndustry ?? "n/a")}</strong></div>
+        </div>
+      </section>
 
-    <h2>Scenario Support</h2>
-    <table>
-      <thead><tr><th>Scenario</th><th>Adjusted equity value</th><th>EV / EBITDA</th><th>TV / EV</th></tr></thead>
-      <tbody>${scenarioRows}</tbody>
-    </table>
-
-    <h2>Benchmark Source Posture</h2>
-    <p class="small">Market benchmark: ${escapeHtml(source.label)}. Status: ${escapeHtml(source.approvalStatus)}. Confidence: ${escapeHtml(source.confidence)}. Damodaran industry: ${escapeHtml(source.damodaranIndustry ?? "n/a")}. Dataset: ${escapeHtml(source.dataset ?? "n/a")}.</p>
-
-    <h2>Methodology</h2>
-    <p class="small">${escapeHtml(conclusion.methodologyNote)} This document is intentionally limited to decision-grade outputs; the Excel workbook and JSON/CSV exports retain detailed audit support.</p>
-
-    <div class="footer">Prepared by Valuation Workbench. Review diagnostics, bridge inputs, and source approvals before external distribution.</div>
+      <div class="footer">
+        <span>Prepared by Valuation Workbench</span>
+        <span>Review diagnostics, bridge inputs, and source approvals before external distribution.</span>
+      </div>
+    </main>
   </div>
 </body>
 </html>`;

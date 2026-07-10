@@ -99,11 +99,19 @@ export function buildBenchmarkAssistantFallback(input: FallbackInput): Benchmark
 
   const warnings: BenchmarkAssistantWarning[] = [];
   if (input.unavailableReason) {
+    const normalizedReason = input.unavailableReason.toLowerCase();
+    const isProviderConfigurationIssue =
+      normalizedReason.includes("quota") ||
+      normalizedReason.includes("billing") ||
+      normalizedReason.includes("api key") ||
+      normalizedReason.includes("openai");
     warnings.push({
       severity: "warning",
       area: "dataQuality",
-      message: input.unavailableReason,
-      suggestedAction: "Configure OPENAI_API_KEY on the server to enable AI-generated benchmark rationale.",
+      message: isProviderConfigurationIssue
+        ? "AI benchmark review is unavailable in this environment."
+        : "AI benchmark review could not be completed.",
+      suggestedAction: "Use the Damodaran Europe benchmark and BizRaport peer screen; AI only adds optional rationale and does not affect numeric valuation inputs.",
     });
   }
   if (!input.damodaranBenchmark?.industry) {
@@ -134,11 +142,11 @@ export function buildBenchmarkAssistantFallback(input: FallbackInput): Benchmark
     bizRaportFilters: compactFilters(input.bizRaportFilters),
     bizRaportRationale: "BizRaport should be used to screen private Polish peers by PKD, revenue scale and EBITDA profile; it should not be treated as a direct trading multiple source.",
     sanityWarnings: warnings,
-    benchmarkRationale: "Use Damodaran Europe as the numeric sector benchmark, BizRaport as private peer screening support, and GPW/NewConnect names as a watchlist until a public-market data provider or analyst-entered data is attached.",
+    benchmarkRationale: "Use Damodaran Europe as the numeric sector benchmark and BizRaport as private peer screening support. GPW/NewConnect should be added only after source-traced public-company financial data is attached.",
     nextActions: [
       "Load Damodaran Europe benchmark and keep selected multiples in draft.",
       "Refresh BizRaport peer screen for the selected KRS and PKD.",
-      "Review suggested GPW/NewConnect comps, then attach source-traced public-market data before approval.",
+      "Approve the selected market multiples only after the benchmark source and peer screen have been reviewed.",
     ],
     auditNote: "Fallback result contains no AI-created valuation numbers; all valuation multiples must remain source-traced and approved.",
   };

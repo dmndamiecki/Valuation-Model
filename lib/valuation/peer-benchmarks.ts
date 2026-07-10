@@ -41,6 +41,8 @@ export type PeerBenchmarkResult = {
   metrics: PeerBenchmarkStats[];
   warnings: string[];
   notes: string[];
+  attemptedFilterCount?: number;
+  selectedFilterLabel?: string;
 };
 
 function latestYear(company: CompanyFinancialData): ImportedFinancialYear | undefined {
@@ -133,18 +135,136 @@ async function fetchPeerFinancials(krsList: string[], sampleLimit: number, fetch
   return { companies, warnings };
 }
 
+function hasMeaningfulFilter(filters: BizRaportCatalogFilters) {
+  return Boolean(
+    filters.pkdPodklasa ||
+    filters.pkdDzial ||
+    filters.pkdSekcja ||
+    filters.opis ||
+    filters.przychodyOd ||
+    filters.przychodyDo ||
+    filters.ebitdaOd ||
+    filters.ebitdaDo,
+  );
+}
+
+function filterVariants(filters: BizRaportCatalogFilters): Array<{ label: string; filters: BizRaportCatalogFilters }> {
+  const limit = filters.limit;
+  const activeOnly = filters.nieWykreslona;
+  const revenueBand = {
+    przychodyOd: filters.przychodyOd,
+    przychodyDo: filters.przychodyDo,
+  };
+  const widerRevenueBand = {
+    przychodyOd: typeof filters.przychodyOd === "number" ? filters.przychodyOd * 0.5 : undefined,
+    przychodyDo: typeof filters.przychodyDo === "number" ? filters.przychodyDo * 1.5 : undefined,
+  };
+  const ebitdaBand = {
+    ebitdaOd: filters.ebitdaOd,
+    ebitdaDo: filters.ebitdaDo,
+  };
+  const variants: Array<{ label: string; filters: BizRaportCatalogFilters }> = [
+    { label: "Exact PKD subclass, revenue and EBITDA", filters },
+    {
+      label: "PKD division, revenue and EBITDA",
+      filters: {
+        pkdDzial: filters.pkdDzial,
+        ...revenueBand,
+        ...ebitdaBand,
+        nieWykreslona: activeOnly,
+        limit,
+      },
+    },
+    {
+      label: "PKD division and wider revenue band",
+      filters: {
+        pkdDzial: filters.pkdDzial,
+        ...widerRevenueBand,
+        nieWykreslona: activeOnly,
+        limit,
+      },
+    },
+    {
+      label: "PKD division only",
+      filters: {
+        pkdDzial: filters.pkdDzial,
+        nieWykreslona: activeOnly,
+        limit,
+      },
+    },
+    {
+      label: "PKD section and revenue band",
+      filters: {
+        pkdSekcja: filters.pkdSekcja,
+        ...widerRevenueBand,
+        nieWykreslona: activeOnly,
+        limit,
+      },
+    },
+    {
+      label: "Business description and revenue band",
+      filters: {
+        opis: filters.opis,
+        ...widerRevenueBand,
+        nieWykreslona: activeOnly,
+        limit,
+      },
+    },
+  ];
+  const seen = new Set<string>();
+
+  return variants
+    .filter((variant) => hasMeaningfulFilter(variant.filters))
+    .filter((variant) => {
+      const signature = JSON.stringify(variant.filters);
+      if (seen.has(signature)) {
+        return false;
+      }
+      seen.add(signature);
+      return true;
+    });
+}
+
+async function fetchCatalogWithFallback(filters: BizRaportCatalogFilters) {
+  const variants = filterVariants(filters);
+  const errors: string[] = [];
+
+  for (let index = 0; index < variants.length; index += 1) {
+    const variant = variants[index];
+    try {
+      const catalog = await fetchBizRaportCatalog(variant.filters);
+      if (catalog.returnedCount === 0) {
+        errors.push(`${variant.label}: no peers returned.`);
+        continue;
+      }
+      return {
+        catalog,
+        selectedFilterLabel: variant.label,
+        attemptedFilterCount: index + 1,
+        warnings: errors,
+      };
+    } catch (error) {
+      errors.push(`${variant.label}: ${error instanceof Error ? error.message : "BizRaport catalog request failed."}`);
+    }
+  }
+
+  throw new Error(errors.length > 0 ? `BizRaport peer screen failed after ${variants.length} filter attempt(s). ${errors.join(" ")}` : "BizRaport peer screen failed because no usable PKD or scale filters were available.");
+}
+
 export async function buildBizRaportPeerBenchmarks(
   filters: BizRaportCatalogFilters,
   requestedSampleLimit: number | undefined,
 ): Promise<PeerBenchmarkResult> {
-  const catalog = await fetchBizRaportCatalog(filters);
+  const fallbackResult = await fetchCatalogWithFallback(filters);
+  const { catalog } = fallbackResult;
   const sampleLimit = effectiveFinancialSampleLimit(requestedSampleLimit);
   const fetchedAt = new Date().toISOString();
   const peerKrs = catalog.companies.map((company) => company.krs);
   const notes: string[] = [
     "Catalog lookup is used as the low-cost peer screen. Full /api/dane financial fetches are capped and should be reserved for selected peer samples.",
+    `Selected peer-screen filter: ${fallbackResult.selectedFilterLabel}.`,
   ];
-  const warnings = [...catalog.warnings];
+  const warnings = [...fallbackResult.warnings, ...catalog.warnings];
 
   if (sampleLimit === 0) {
     notes.push("No /api/dane peer sample was requested, so benchmark metrics are not calculated.");
@@ -159,6 +279,8 @@ export async function buildBizRaportPeerBenchmarks(
       metrics: [],
       warnings,
       notes,
+      attemptedFilterCount: fallbackResult.attemptedFilterCount,
+      selectedFilterLabel: fallbackResult.selectedFilterLabel,
     };
   }
 
@@ -191,6 +313,8 @@ export async function buildBizRaportPeerBenchmarks(
     metrics: benchmarkMetrics.map((metric) => stats(metric, peerFinancials.companies.map((company) => metricValue(company, metric)).filter((value): value is number => value !== null))),
     warnings,
     notes,
+    attemptedFilterCount: fallbackResult.attemptedFilterCount,
+    selectedFilterLabel: fallbackResult.selectedFilterLabel,
   };
 }
 
